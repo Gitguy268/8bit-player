@@ -1,0 +1,3223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vinyl Record Player</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    /* ══ 8-BIT RESKIN — same DOM/IDs/JS, visuals only ══ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f1b;
+      --surface: #1a1a2e;
+      --surface2: #23233d;
+      --text: #f4f4f4;
+      --text-dim: #8a8aa3;
+      --accent: #ff0044;
+      --border: #f4f4f4;
+      --vinyl-size: min(340px, 60vmin);
+      --shadow: 6px 6px 0 #000;
+      --transition: .15s steps(4);
+      --accent-h: 340;
+      --accent-s: 100%;
+      --accent-l: 50%;
+      --px-yellow: #ffcc00;
+      --px-cyan: #00e5ff;
+      --px-green: #00ff85;
+    }
+
+    /* ── Auto light mode (8-bit day palette) ───── */
+    body.light-auto {
+      --bg: #d7d7e8;
+      --surface: #f4f4f4;
+      --surface2: #c9c9de;
+      --text: #0f0f1b;
+      --text-dim: #4a4a63;
+      --border: #0f0f1b;
+      --shadow: 6px 6px 0 #000;
+    }
+
+    @media (prefers-color-scheme: light) {
+      body.auto-scheme:not(.has-custom-colors) {
+        --bg: #d7d7e8;
+        --surface: #f4f4f4;
+        --surface2: #c9c9de;
+        --text: #0f0f1b;
+        --text-dim: #4a4a63;
+        --border: #0f0f1b;
+        --shadow: 6px 6px 0 #000;
+      }
+    }
+
+    /* ── Screen-reader only ────────────────────── */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px;
+      padding: 0; margin: -1px; overflow: hidden;
+      clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+
+    /* ── Focus mode ────────────────────────────── */
+    .focus { --vinyl-size: min(520px, 85vmin); }
+    .focus .files, .focus .row:not(.focus-bar), .focus .hint,
+    .focus .tracklist, .focus .about-wrap, .focus .color-row,
+    .focus .lift-arm-row { display: none !important; }
+    .focus .turntable {
+      width: calc(var(--vinyl-size) + 100px);
+      height: calc(var(--vinyl-size) + 60px);
+    }
+    .focus .focus-controls { display: flex; }
+
+    body {
+      font-family: "VT323", monospace;
+      font-size: 20px;
+      line-height: 1.3;
+      background: var(--bg);
+      background-image:
+        repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 2px, transparent 2px 4px);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      user-select: none;
+      -webkit-user-select: none;
+      image-rendering: pixelated;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    /* CRT scanlines — decorative only, no DOM change */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 200;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,.25) 0 2px, transparent 2px 4px);
+      box-shadow: inset 0 0 140px rgba(0,0,0,.7);
+    }
+
+    .app {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 16px; max-width: 700px; width: 100%;
+      position: relative; z-index: 1;
+    }
+
+    /* ── Turntable ─────────────────────────────── */
+    .turntable {
+      position: relative;
+      width: calc(var(--vinyl-size) + 90px);
+      height: calc(var(--vinyl-size) + 50px);
+      border-radius: 0;
+      border: 4px solid var(--border);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      display: flex; align-items: center; justify-content: center;
+      transition: background var(--transition), box-shadow var(--transition),
+                  width var(--transition), height var(--transition);
+    }
+
+    @keyframes tt-bump {
+      0% { transform: translate(0,0); }
+      40% { transform: translate(2px,2px); }
+      100% { transform: translate(0,0); }
+    }
+    .turntable.bump { animation: tt-bump 0.15s steps(3); }
+
+    /* ── Vinyl ─────────────────────────────────── */
+    .vinyl-wrap {
+      position: relative;
+      width: var(--vinyl-size); height: var(--vinyl-size);
+      cursor: grab; margin-left: -16px;
+      transition: transform .1s steps(3), width var(--transition), height var(--transition);
+      will-change: transform;
+    }
+    .vinyl-wrap:hover { transform: translate(-1px,-1px); }
+    .vinyl-wrap.dragging { cursor: grabbing; transform: translate(2px,2px); }
+
+    .vinyl {
+      width: 100%; height: 100%;
+      border-radius: 50%; position: relative;
+      will-change: transform;
+    }
+
+    .vinyl-disc {
+      position: absolute; inset: 0; border-radius: 50%;
+      border: 4px solid #fff;
+      background:
+        repeating-radial-gradient(circle, #0a0a0a 0 3px, #1c1c1c 3px 6px);
+      box-shadow: 6px 6px 0 #000;
+      transition: background var(--transition), box-shadow var(--transition);
+    }
+
+    .vinyl-grooves {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: repeating-radial-gradient(circle, transparent 0, transparent 3px,
+        rgba(255,255,255,.06) 3px, transparent 5px);
+      pointer-events: none;
+    }
+
+    .vinyl-label {
+      position: absolute; top: 50%; left: 50%;
+      width: 36%; height: 36%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: var(--accent);
+      border: 4px solid #000;
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 2;
+      transition: background var(--transition);
+      font-family: "Press Start 2P", monospace;
+    }
+
+    .vinyl-label .cover-img {
+      width: 100%; height: 100%; object-fit: cover;
+      border-radius: 50%; display: none;
+      image-rendering: pixelated;
+    }
+
+    .vinyl-label .no-cover {
+      font-family: "Press Start 2P", monospace;
+      font-size: 8px; line-height: 1.5;
+      color: #000; text-align: center;
+      text-transform: uppercase;
+    }
+
+    .vinyl-spindle {
+      position: absolute; top: 50%; left: 50%;
+      width: 12px; height: 12px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: #000; border: 3px solid #fff; z-index: 3;
+    }
+
+    .vinyl-highlight, .vinyl-sheen, .vinyl-iridescent, .vinyl-dust {
+      position: absolute; inset: 0; border-radius: 50%;
+      pointer-events: none; z-index: 4;
+    }
+
+    .vinyl-highlight {
+      opacity: .3; mix-blend-mode: normal;
+      background: conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,.12) 30deg, transparent 60deg, transparent 180deg, rgba(255,255,255,.08) 210deg, transparent 240deg);
+      transition: opacity var(--transition);
+    }
+
+    .vinyl-sheen {
+      background: none;
+      opacity: 1;
+    }
+
+    .vinyl-iridescent {
+      display: none;
+    }
+
+    .vinyl-dust {
+      opacity: .12; z-index: 5;
+      background:
+        repeating-linear-gradient(0deg, transparent 0 4px, rgba(255,255,255,.05) 4px 5px);
+    }
+
+    .vinyl-glow {
+      position: absolute; inset: -8px; border-radius: 50%;
+      pointer-events: none; z-index: 1;
+      border: 3px solid transparent;
+      transition: border-color .15s steps(3), box-shadow .15s steps(3);
+    }
+
+    .vinyl-wrap:hover .vinyl-glow {
+      border-color: var(--px-yellow);
+      box-shadow: none;
+    }
+
+    /* ── Bass visualizer canvas ────────────────── */
+    .bass-canvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none; z-index: 6;
+      border-radius: 50%;
+      image-rendering: pixelated;
+    }
+
+    /* ── Tonearm ───────────────────────────────── */
+    .tonearm {
+      position: absolute; right: 16px; top: -8px;
+      width: 50px; height: calc(var(--vinyl-size) * 0.55);
+      z-index: 10; cursor: grab;
+      transform-origin: top center;
+      transition: height var(--transition);
+      touch-action: none;
+      will-change: transform;
+    }
+    .tonearm.smooth {
+      transition: transform .3s steps(6), height var(--transition);
+    }
+    .tonearm.off { transform: rotate(-8deg); }
+    .tonearm.arm-dragging { cursor: grabbing; transition: height var(--transition); }
+
+    .tonearm-base {
+      position: absolute; top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 28px; height: 28px; border-radius: 0;
+      background: var(--surface2);
+      border: 4px solid var(--border);
+      box-shadow: 3px 3px 0 #000;
+    }
+    .tonearm-bar {
+      position: absolute; top: 12px; left: 50%;
+      transform: translateX(-50%);
+      width: 8px; height: calc(100% - 24px);
+      background: var(--px-cyan);
+      border: 2px solid #000;
+      border-radius: 0;
+    }
+    .tonearm-head {
+      position: absolute; bottom: -3px; left: 50%;
+      transform: translateX(-50%);
+      width: 16px; height: 20px;
+      background: var(--accent);
+      border: 3px solid #000;
+      border-radius: 0;
+    }
+    .tonearm-head::after {
+      content: ''; position: absolute; bottom: -5px; left: 50%;
+      transform: translateX(-50%);
+      width: 4px; height: 6px;
+      background: #fff; border-radius: 0;
+    }
+
+    /* ── Theme: Wood (8-bit dither) ────────────── */
+    .theme-wood .turntable {
+      background:
+        repeating-linear-gradient(0deg, #5a3e28 0 6px, #6b4c33 6px 12px);
+      border: 4px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .theme-wood .vinyl-disc {
+      background:
+        repeating-radial-gradient(circle, #0a0a0a 0 3px, #141414 3px 6px);
+      border: 4px solid #fff;
+      box-shadow: 6px 6px 0 #000;
+    }
+
+    /* ── Theme: Clear (8-bit flat, no glass) ───── */
+    .theme-clear .turntable {
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border: 4px solid var(--px-cyan);
+      border-radius: 0;
+    }
+    .theme-clear .vinyl-disc {
+      background:
+        repeating-radial-gradient(circle, #101020 0 3px, #1e1e38 3px 6px);
+      box-shadow: 6px 6px 0 #000;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border: 4px solid var(--px-cyan);
+    }
+    .theme-clear .vinyl-disc::before,
+    .theme-clear .vinyl-disc::after {
+      display: none;
+    }
+    .theme-clear .vinyl-grooves {
+      background: repeating-radial-gradient(circle, transparent 0, transparent 3px, rgba(255,255,255,.06) 3px, transparent 5px);
+      opacity: 1;
+    }
+    .theme-clear .vinyl-highlight { opacity: .3; mix-blend-mode: normal; z-index: 6; }
+    .theme-clear .vinyl-sheen {
+      background: none; opacity: 1; z-index: 7;
+    }
+    .theme-clear .vinyl-iridescent { display: none; }
+    .theme-clear .vinyl-dust { opacity: .12; }
+    .theme-clear .vinyl-glow {
+      inset: -8px; border: 3px solid transparent;
+      box-shadow: none;
+      transition: border-color .15s steps(3);
+    }
+    .theme-clear .vinyl-wrap:hover .vinyl-glow {
+      border-color: var(--px-yellow);
+      box-shadow: none;
+    }
+    .theme-clear .vinyl-wrap::after { display: none; }
+    .theme-clear .vinyl-label {
+      box-shadow: 3px 3px 0 #000;
+    }
+    .theme-clear .vinyl-spindle {
+      background: #000;
+      border: 3px solid #fff; box-shadow: none;
+    }
+    .theme-clear .tonearm-base {
+      background: var(--surface2);
+      box-shadow: 3px 3px 0 #000;
+      backdrop-filter: none;
+      border: 4px solid var(--border);
+    }
+    .theme-clear .tonearm-bar { background: var(--px-cyan); box-shadow: none; border: 2px solid #000; }
+    .theme-clear .tonearm-head { background: var(--accent); box-shadow: none; border: 3px solid #000; }
+
+    /* ── Controls ──────────────────────────────── */
+    .row {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      align-items: center; justify-content: center; width: 100%;
+    }
+
+    button, select, .about-toggle {
+      font-family: "Press Start 2P", monospace;
+      font-size: 9px;
+      text-transform: uppercase;
+      padding: 10px 12px;
+      border: 3px solid var(--border); border-radius: 0;
+      background: var(--surface2); color: var(--text);
+      cursor: pointer;
+      box-shadow: 4px 4px 0 #000;
+      transition: transform 0.05s steps(2), background var(--transition), color var(--transition);
+    }
+    button:hover, select:hover, .about-toggle:hover { border-color: var(--px-yellow); color: var(--px-yellow); }
+    button:disabled { opacity: .35; cursor: not-allowed; box-shadow: none; }
+    button.on { background: var(--px-yellow); color: #000; border-color: #000; box-shadow: 4px 4px 0 var(--accent); }
+    button:active, select:active, .about-toggle:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 #000; }
+    button:focus-visible, select:focus-visible, input:focus-visible {
+      outline: 3px solid var(--px-cyan); outline-offset: 2px;
+    }
+
+    .group {
+      display: flex; align-items: center; gap: 6px;
+      font-family: "Press Start 2P", monospace;
+      font-size: 8px; color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    @keyframes eq-pulse {
+      0% { transform: translate(0,0); color: var(--text-dim); }
+      50% { transform: translate(1px,1px); color: var(--accent); }
+      100% { transform: translate(0,0); color: var(--text-dim); }
+    }
+    .eq-flash { animation: eq-pulse .2s steps(2); }
+
+    @keyframes blink-hard { 50% { opacity: 0; } }
+
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      width: 80px; height: 14px; border-radius: 0;
+      background: #000;
+      border: 3px solid var(--border);
+      outline: none; cursor: pointer;
+      box-shadow: 3px 3px 0 #000;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 16px; height: 22px;
+      border-radius: 0; background: var(--accent);
+      border: 3px solid #fff;
+      transition: transform 0.05s steps(2);
+    }
+    input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.1); }
+    input[type="range"]::-moz-range-thumb {
+      width: 12px; height: 18px; border: 3px solid #fff;
+      border-radius: 0; background: var(--accent);
+      transition: transform 0.05s steps(2);
+    }
+    input[type="range"]::-moz-range-thumb:active { transform: scale(1.1); }
+
+    input[type="color"] {
+      -webkit-appearance: none; appearance: none;
+      width: 32px; height: 32px;
+      border: 3px solid var(--border); border-radius: 0;
+      box-shadow: 3px 3px 0 #000;
+      cursor: pointer; background: #000; padding: 0; overflow: hidden;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type="color"]::-webkit-color-swatch { border: none; border-radius: 0; }
+    input[type="color"]::-moz-color-swatch { border: none; border-radius: 0; }
+
+    .hex-input {
+      font-family: "VT323", monospace; font-size: 19px;
+      width: 78px; padding: 4px 6px;
+      border: 3px solid var(--border); border-radius: 0;
+      background: #000; color: var(--px-green);
+      text-align: center; outline: none;
+      box-shadow: 3px 3px 0 #000;
+      transition: border-color var(--transition);
+    }
+    .hex-input:focus { border-color: var(--accent); }
+
+    label {
+      cursor: pointer; display: flex; align-items: center; gap: 4px;
+      transition: transform 0.05s steps(2);
+    }
+    label:active { transform: translate(1px,1px); }
+    input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; width: 16px; height: 16px; }
+
+    .files {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    }
+    .files label {
+      font-family: "Press Start 2P", monospace;
+      font-size: 8px; text-transform: uppercase;
+      padding: 10px 12px; border-radius: 0;
+      background: var(--surface2); border: 3px solid var(--border);
+      box-shadow: 4px 4px 0 #000;
+      color: var(--text); cursor: pointer;
+      transition: transform 0.05s steps(2), border-color var(--transition);
+    }
+    .files label:hover { border-color: var(--px-yellow); color: var(--px-yellow); }
+    .files label:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 #000; }
+    .files input[type="file"] { display: none; }
+
+    .hint {
+      font-family: "VT323", monospace;
+      font-size: 22px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--px-cyan); text-align: center;
+      min-height: 20px;
+      text-shadow: 2px 2px 0 #000;
+      transition: color var(--transition);
+    }
+
+    /* ── Tracklist ─────────────────────────────── */
+    .tracklist {
+      width: 100%; background: var(--surface);
+      border: 4px solid var(--border);
+      border-radius: 0; padding: 12px;
+      box-shadow: var(--shadow);
+      transition: background var(--transition), box-shadow var(--transition);
+      max-height: 260px; overflow-y: auto;
+    }
+    .tracklist::-webkit-scrollbar { width: 10px; }
+    .tracklist::-webkit-scrollbar-track { background: #000; }
+    .tracklist::-webkit-scrollbar-thumb { background: var(--accent); border: 2px solid #000; border-radius: 0; }
+    .tracklist h3 {
+      font-family: "Press Start 2P", monospace;
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 1px; color: var(--px-yellow);
+      text-shadow: 2px 2px 0 #000;
+      margin-bottom: 10px;
+    }
+    .tracklist h3::before { content: '▶ '; color: var(--accent); }
+    .tracklist ol { list-style: none; counter-reset: track; }
+    .tracklist li {
+      counter-increment: track;
+      display: flex; align-items: center;
+      padding: 8px; border-radius: 0;
+      border: 2px solid transparent;
+      font-size: 20px; cursor: pointer;
+      transition: background .1s steps(2), transform 0.05s steps(2);
+      gap: 10px;
+    }
+    .tracklist li:active { transform: translate(1px,1px); }
+    .tracklist li:hover { background: var(--surface2); border-color: var(--border); }
+    .tracklist li.active { background: var(--accent); color: #000; border-color: #000; box-shadow: 3px 3px 0 #000; }
+    .tracklist li.active .trk-dur { color: #000; }
+    .tracklist li::before {
+      content: counter(track, decimal-leading-zero);
+      font-family: "Press Start 2P", monospace;
+      font-size: 8px; color: var(--text-dim); min-width: 22px;
+    }
+    .tracklist li.active::before { color: #000; }
+    .trk-title {
+      flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .trk-artist {
+      font-size: 18px; color: var(--px-cyan); white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 100px;
+    }
+    .tracklist li.active .trk-artist { color: #000; }
+    .trk-dur {
+      font-size: 18px; color: var(--px-green);
+      background: #000; padding: 2px 6px; border: 2px solid currentColor;
+      font-variant-numeric: tabular-nums; flex-shrink: 0;
+    }
+    .trk-rm {
+      font-family: "Press Start 2P", monospace;
+      font-size: 8px; color: var(--text-dim);
+      background: none; border: none; box-shadow: none; padding: 4px 6px;
+      cursor: pointer; opacity: 0;
+      transition: opacity .1s steps(2);
+      flex-shrink: 0; line-height: 1;
+    }
+    .tracklist li:hover .trk-rm { opacity: .8; box-shadow: none; }
+    .trk-rm:hover { opacity: 1 !important; color: var(--accent); border-color: transparent; }
+    .tracklist li.active .trk-rm { color: #000; box-shadow: none; }
+    .tracklist-empty {
+      font-size: 20px; color: var(--text-dim); text-align: center;
+      padding: 12px 0; font-style: normal;
+      text-transform: uppercase;
+      animation: blink-hard 1.2s steps(2) infinite;
+    }
+
+    /* ── Color row ─────────────────────────────── */
+    .color-row {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      align-items: center; justify-content: center; width: 100%;
+    }
+    .color-group {
+      display: flex; align-items: center; gap: 6px;
+      font-family: "Press Start 2P", monospace;
+      font-size: 8px; color: var(--text-dim);
+      text-transform: uppercase;
+      background: var(--surface);
+      border: 3px solid var(--border);
+      padding: 6px 8px;
+      box-shadow: 3px 3px 0 #000;
+    }
+    .color-group .swatch-label { min-width: 48px; text-align: right; }
+
+    /* ── About / Record Info ───────────────────── */
+    /* ── Label visualizer, graphic EQ and library desktop ── */
+    .viz-canvas {
+      position: absolute; top: 50%; left: 50%; width: 36%; height: 36%;
+      transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; display: none; z-index: 4;
+      /* the spindle shows through */
+      -webkit-mask: radial-gradient(circle closest-side, transparent 9%, #000 10%);
+      mask: radial-gradient(circle closest-side, transparent 9%, #000 10%);
+      image-rendering: pixelated;
+    }
+    .viz-canvas.on { display: block; }
+    .tracklist { position: relative; }
+    #deskBtn { position: absolute; top: 8px; right: 12px; padding: 2px 9px; font-size: 11px; }
+
+    .geq { border: 0; color: var(--text-dim); }
+    .geq legend { margin-bottom: 8px; }
+    .geq-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
+    .geq-controls select { flex: 1 1 10rem; min-width: 0; }
+    .geq-sliders { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 4px; max-width: 520px; }
+    .geq-sliders.off { opacity: .55; }
+    .geq-band { display: grid; justify-items: center; gap: 6px; font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+    .geq-band input[type="range"] { writing-mode: vertical-lr; direction: rtl; width: 4px; height: 96px; }
+    .geq-preamp { border-right: 2px solid var(--border); }
+    .geq-status { margin-top: 8px; }
+    .geq-status:empty { display: none; }
+
+    .desktop {
+      position: fixed; inset: 0; z-index: 190;
+      display: grid; grid-template-rows: auto 1fr; align-content: start;
+      background: var(--bg); color: var(--text);
+    }
+    .desktop[hidden] { display: none; }
+    .desk-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 16px; background: var(--surface); border-bottom: 2px solid var(--border); }
+    .desk-bar h2 { font-size: 14px; }
+    .desk-hint { flex: 1; color: var(--text-dim); font-size: 12px; }
+    .desk-icons { display: flex; flex-flow: column wrap; gap: 8px; align-content: flex-start; align-items: flex-start; min-height: 0; padding: 16px; }
+    .desk-windows { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+    .desktop .desk-icon {
+      display: grid; gap: 2px; justify-items: center; width: 104px; padding: 8px;
+      text-align: center; background: none; box-shadow: none; border: 2px solid transparent; border-radius: 0;
+    }
+    .desktop .desk-icon:hover, .desktop .desk-icon:focus-visible, .desktop .desk-icon.is-target { background: var(--surface2); border-color: var(--accent); }
+    .desk-glyph { font-size: 32px; line-height: 1; }
+    .desk-folder .desk-glyph::before { content: '📁'; }
+    .desk-file .desk-glyph::before { content: '🎵'; }
+    .desk-deck .desk-glyph::before { content: '💿'; }
+    .desk-name { font-size: 12px; overflow-wrap: anywhere; }
+    .desk-meta { color: var(--text-dim); font-size: 11px; }
+    .desk-window {
+      position: absolute; display: grid; grid-template-rows: auto 1fr;
+      width: min(420px, calc(100vw - 32px)); max-height: 60vh; pointer-events: auto;
+      background: var(--surface); border: 2px solid var(--border); border-radius: 0; box-shadow: var(--shadow);
+    }
+    .desk-window-bar {
+      display: flex; gap: 8px; align-items: center; justify-content: space-between;
+      padding: 4px 4px 4px 10px; font-size: 12px; font-weight: 600; cursor: grab; touch-action: none;
+      background: var(--surface2); border-bottom: 2px solid var(--border); border-radius: 0 0 0 0;
+    }
+    .desktop .desk-close { min-width: 32px; min-height: 32px; padding: 0; background: none; box-shadow: none; border: 0; }
+    .desk-window-body { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; overflow: auto; }
+
+    .about-wrap { width: 100%; }
+    .about-toggle {
+      width: 100%; border-radius: 0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .about-toggle .arrow { transition: transform var(--transition); font-size: 10px; }
+    .about-wrap.open .about-toggle .arrow { transform: rotate(180deg); }
+    .about-body {
+      max-height: 0; overflow: hidden;
+      transition: max-height .3s steps(8), padding .2s steps(4);
+      background: var(--surface);
+      border: 0 solid var(--border);
+      border-radius: 0;
+      padding: 0 12px; font-size: 20px; line-height: 1.4; color: var(--text-dim);
+    }
+    .about-wrap.open .about-body {
+      max-height: 800px; padding: 12px; overflow-y: auto;
+      border: 4px solid var(--border); border-top: 0;
+      box-shadow: var(--shadow);
+    }
+    .info-panels { display: flex; flex-direction: column; gap: 12px; }
+    .info-card {
+      background: var(--surface2); border-radius: 0;
+      padding: 10px; border: 3px solid var(--border);
+      box-shadow: 4px 4px 0 #000;
+    }
+    .info-card h4 {
+      font-family: "Press Start 2P", monospace;
+      font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--px-yellow);
+      text-shadow: 2px 2px 0 #000;
+      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .info-card h4::before { content: '★ '; color: var(--accent); }
+    .info-card h4::after { content: ''; flex: 1; height: 3px; background: var(--border); }
+    .sleeve-line {
+      display: flex; gap: 8px; padding: 4px 0;
+      border-bottom: 2px dashed rgba(255,255,255,.15);
+    }
+    .sleeve-line:last-of-type { border-bottom: none; }
+    .sleeve-label {
+      text-transform: uppercase; font-size: 16px; letter-spacing: 1px;
+      font-family: "Press Start 2P", monospace; font-size: 7px;
+      color: var(--px-cyan); min-width: 65px; flex-shrink: 0; padding-top: 4px;
+    }
+    .sleeve-val { color: var(--text); flex: 1; word-break: break-word; }
+    .sleeve-notes {
+      margin-top: 10px; font-style: normal; color: var(--text-dim);
+      font-size: 19px; line-height: 1.4; outline: none;
+      border-radius: 0; padding: 6px;
+      background: #000; border: 2px solid var(--border);
+      transition: border-color .15s steps(3);
+    }
+    .sleeve-notes:focus, .sleeve-val:focus {
+      background: #000; color: var(--px-green);
+      outline: none;
+      border: 2px solid var(--accent);
+    }
+    .editable { cursor: text; border-bottom: 2px dotted transparent; transition: border-color .15s steps(3); }
+    .editable:hover { border-bottom-color: var(--border); }
+
+    /* ── Focus bar ─────────────────────────────── */
+    .focus-bar {
+      display: flex; gap: 10px; align-items: center;
+      justify-content: center; width: 100%;
+    }
+
+    /* ── Focus mode floating controls (8-bit HUD) */
+    .focus-controls {
+      display: none;
+      position: fixed; bottom: 32px; left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      border: 4px solid var(--border);
+      border-radius: 0;
+      padding: 10px 16px;
+      gap: 12px; align-items: center;
+      box-shadow: 6px 6px 0 #000;
+      z-index: 50;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .fc-btn {
+      background: var(--surface2);
+      border: 3px solid var(--border);
+      box-shadow: 3px 3px 0 #000;
+      color: var(--text);
+      font-family: "Press Start 2P", monospace;
+      font-size: 10px; padding: 8px 10px; cursor: pointer;
+      border-radius: 0; transition: transform .05s steps(2);
+    }
+    .fc-btn:hover {
+      background: var(--surface2);
+      border-color: var(--px-yellow);
+      color: var(--px-yellow);
+      transform: translate(1px,1px);
+      box-shadow: 2px 2px 0 #000;
+    }
+    .fc-btn.fc-play {
+      font-size: 12px; width: 48px; height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--px-green); color: #000; border-color: #000;
+    }
+    .fc-btn.fc-play.on { color: #000; background: var(--px-yellow); text-shadow: none; }
+
+    .fc-time {
+      font-family: "VT323", monospace;
+      font-size: 22px; font-weight: 400; color: var(--px-green);
+      background: #000; padding: 2px 8px; border: 3px solid var(--border);
+      text-shadow: none;
+      font-variant-numeric: tabular-nums; min-width: 64px; text-align: center;
+    }
+
+    .fc-seek {
+      width: 160px; height: 16px;
+      background: #000;
+      box-shadow: none;
+      border: 3px solid var(--border);
+      border-radius: 0; cursor: pointer; position: relative; overflow: hidden;
+    }
+    .fc-seek-fill {
+      height: 100%;
+      background: repeating-linear-gradient(90deg, var(--accent) 0 6px, #fff 6px 8px);
+      box-shadow: none;
+      border-radius: 0; width: 0;
+    }
+
+    /* ── Drag-drop overlay ─────────────────────── */
+    .drop-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.85);
+      backdrop-filter: none; -webkit-backdrop-filter: none;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px;
+      z-index: 200; pointer-events: none;
+      border: 8px dashed var(--px-green);
+    }
+    .drop-overlay.active { display: flex; pointer-events: all; }
+    .drop-icon { font-size: 48px; animation: drop-spin 1s steps(8) infinite; }
+    @keyframes drop-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .drop-text {
+      font-family: "Press Start 2P", monospace;
+      font-size: 12px; line-height: 1.8;
+      color: var(--px-green); font-weight: 400;
+      text-align: center; max-width: 340px;
+      text-shadow: 2px 2px 0 #000;
+      text-transform: uppercase;
+    }
+    .drop-hint {
+      font-family: "Press Start 2P", monospace;
+      font-size: 8px; color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    /* ── Lift Arm button (touch devices) ────────── */
+    .lift-arm-row {
+      display: none; width: 100%; justify-content: center;
+    }
+    @media (hover: none) and (pointer: coarse) {
+      .lift-arm-row { display: flex; }
+      .tonearm { width: 60px; }
+    }
+
+    /* ── Responsive ────────────────────────────── */
+    @media (min-width: 600px) {
+      .info-panels { flex-direction: row; align-items: flex-start; }
+      .info-card { flex: 1; }
+    }
+
+    @media (max-width: 480px) {
+      :root { --vinyl-size: min(260px, 70vmin); }
+      .focus { --vinyl-size: min(380px, 85vmin); }
+      body { font-size: 18px; }
+      .turntable {
+        width: calc(var(--vinyl-size) + 60px);
+        height: calc(var(--vinyl-size) + 40px);
+      }
+      .tonearm { right: 6px; }
+      .fc-seek { width: 80px; }
+      .focus-controls { padding: 8px 10px; gap: 8px; border-radius: 0; }
+      button, select, .about-toggle { font-size: 8px; padding: 8px 10px; }
+    }
+
+    @media print {
+      body { background: #fff; color: #000; }
+      body::after { display: none; }
+    }
+  </style>
+</head>
+<body class="auto-scheme">
+
+  <!-- Drag & Drop Overlay -->
+  <div class="drop-overlay" id="dropOverlay">
+    <div class="drop-icon">💿</div>
+    <div class="drop-text">Drop audio files or a cover image here</div>
+    <div class="drop-hint">MP3 · WAV · OGG · FLAC · PNG · JPG</div>
+  </div>
+
+  <!-- ARIA Live Region -->
+  <div class="sr-only" aria-live="polite" role="status" id="ariaLive"></div>
+
+  <div class="app" id="app">
+    <div class="hint" id="hint">Load or drop audio files to start</div>
+
+    <div class="files">
+      <label aria-label="Choose cover image">🖼 Cover image<input type="file" id="coverIn" accept="image/png,image/jpeg,image/webp"></label>
+      <label aria-label="Add audio files">🎵 Add audio files<input type="file" id="audioIn" accept="audio/*" multiple></label>
+    </div>
+
+    <div class="turntable" id="turntable">
+      <div class="vinyl-wrap" id="vinylWrap">
+        <div class="vinyl" id="vinyl">
+          <div class="vinyl-disc"></div>
+          <div class="vinyl-grooves"></div>
+          <div class="vinyl-label">
+            <img class="cover-img" id="coverImg" alt="Album cover art">
+            <span class="no-cover" id="noCover">No Cover</span>
+          </div>
+          <div class="vinyl-spindle"></div>
+          <div class="vinyl-highlight" id="highlight"></div>
+          <div class="vinyl-sheen"></div>
+          <div class="vinyl-iridescent"></div>
+          <div class="vinyl-dust"></div>
+        </div>
+        <canvas class="viz-canvas" id="vizCanvas" aria-hidden="true"></canvas>
+        <canvas class="bass-canvas" id="bassCanvas" width="400" height="400"></canvas>
+        <div class="vinyl-glow"></div>
+      </div>
+      <div class="tonearm off smooth" id="tonearm" role="slider" aria-label="Tonearm" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="tonearm-base"></div>
+        <div class="tonearm-bar"></div>
+        <div class="tonearm-head"></div>
+      </div>
+    </div>
+
+    <!-- Lift Arm (touch devices) -->
+    <div class="lift-arm-row">
+      <button id="liftArmBtn" aria-label="Lift or lower the tonearm">💪 Lift / Drop Arm</button>
+    </div>
+
+    <div class="tracklist" role="list" aria-label="Tracklist">
+      <h3>Tracklist</h3>
+      <button id="deskBtn" aria-controls="desktop" title="Library desktop: artists and albums as folders">🗂 Desktop</button>
+      <ol id="tracklistOl" role="list"></ol>
+      <div class="tracklist-empty" id="tracklistEmpty">No tracks — drag & drop or add files above</div>
+    </div>
+
+    <div class="row">
+      <button id="prevBtn" disabled aria-label="Previous track">⏮</button>
+      <button id="playBtn" disabled aria-label="Play">▶ Play</button>
+      <button id="nextBtn" disabled aria-label="Next track">⏭</button>
+      <button id="shuffleBtn" aria-label="Toggle shuffle" title="Shuffle">🔀</button>
+      <button id="repeatBtn" aria-label="Cycle repeat mode" title="Repeat: Off">🔁</button>
+      <select id="rpmSel" aria-label="RPM speed">
+        <option value="33">33⅓ RPM</option>
+        <option value="45">45 RPM</option>
+        <option value="78">78 RPM</option>
+      </select>
+      <select id="themeSel" aria-label="Turntable theme">
+        <option value="">Minimal</option>
+        <option value="theme-wood">Wood</option>
+        <option value="theme-clear">Clear</option>
+      </select>
+      <button id="modeBtn" title="Light / dark mode" aria-label="Toggle light or dark mode">☀</button>
+    </div>
+
+    <div class="color-row">
+      <div class="color-group">
+        <span class="swatch-label">Accent</span>
+        <input type="color" id="accentPick" value="#e8562a" aria-label="Accent color">
+        <input type="text" class="hex-input" id="accentHex" value="#e8562a" maxlength="7" spellcheck="false" aria-label="Accent hex color">
+      </div>
+      <div class="color-group">
+        <span class="swatch-label">BG</span>
+        <input type="color" id="bgPick" value="#1a1a1e" aria-label="Background color">
+        <input type="text" class="hex-input" id="bgHex" value="#1a1a1e" maxlength="7" spellcheck="false" aria-label="Background hex color">
+      </div>
+      <div class="color-group">
+        <span class="swatch-label">Panel</span>
+        <input type="color" id="surfacePick" value="#242428" aria-label="Panel color">
+        <input type="text" class="hex-input" id="surfaceHex" value="#242428" maxlength="7" spellcheck="false" aria-label="Panel hex color">
+      </div>
+      <div class="color-group">
+        <span class="swatch-label">Text</span>
+        <input type="color" id="textPick" value="#e8e8e8" aria-label="Text color">
+        <input type="text" class="hex-input" id="textHex" value="#e8e8e8" maxlength="7" spellcheck="false" aria-label="Text hex color">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="group"><span id="volLabel">Vol</span><input type="range" id="vol" min="0" max="1" step=".01" value=".8" aria-label="Volume"></div>
+      <div class="group" id="time" aria-label="Current time">0:00 / 0:00</div>
+      <div class="group"><label><input type="checkbox" id="scratchChk"> Scratch</label></div>
+      <div class="group"><label><input type="checkbox" id="sfxChk" checked> Effects</label></div>
+    </div>
+
+    <div class="row">
+      <div class="group"><span id="bassLabel">Bass</span><input type="range" id="bassSlider" min="-12" max="12" step="1" value="0" aria-label="Bass EQ"></div>
+      <div class="group"><span id="midLabel">Mid</span><input type="range" id="midSlider" min="-12" max="12" step="1" value="0" aria-label="Mid EQ"></div>
+      <div class="group"><span id="trebleLabel">Treble</span><input type="range" id="trebleSlider" min="-12" max="12" step="1" value="0" aria-label="Treble EQ"></div>
+      <div class="group"><span>Vinyl noise</span><input type="range" id="noiseSlider" min="0" max="1" step=".01" value="0" aria-label="Vinyl noise level"></div>
+      <div class="group"><span>Visualizer</span><select id="vizSel" aria-label="Visualizer on the record label">
+        <option value="off">Off</option><option value="lines">Lines</option><option value="scope">Scope</option>
+        <option value="spectrogram">Spectrogram</option><option value="radial">Radial</option>
+      </select></div>
+    </div>
+
+    <div class="about-wrap" id="aboutWrap">
+      <button class="about-toggle" id="aboutToggle" aria-expanded="false" aria-controls="aboutBody">
+        <span>Record Info</span><span class="arrow">▼</span>
+      </button>
+      <div class="about-body" id="aboutBody">
+        <div class="info-panels">
+          <div class="info-card">
+            <h4>About This Song</h4>
+            <div class="sleeve-line"><span class="sleeve-label">Track</span><span class="sleeve-val" id="songTitle">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Artist</span><span class="sleeve-val" id="songArtist">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Album</span><span class="sleeve-val" id="songAlbum">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Length</span><span class="sleeve-val" id="songDuration">—</span></div>
+            <div class="sleeve-notes editable" id="songNotes" contenteditable="true" spellcheck="false">Drop the needle to see track details.</div>
+          </div>
+          <div class="info-card">
+            <h4>About This Album</h4>
+            <div class="sleeve-line"><span class="sleeve-label">Artist</span><span class="sleeve-val editable" id="aboutArtist" contenteditable="true" spellcheck="false">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Year</span><span class="sleeve-val editable" id="aboutYear" contenteditable="true" spellcheck="false">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Genre</span><span class="sleeve-val editable" id="aboutGenre" contenteditable="true" spellcheck="false">—</span></div>
+            <div class="sleeve-notes editable" id="albumNotes" contenteditable="true" spellcheck="false">Click to add your own liner notes. Good records deserve good stories.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="about-wrap" id="geqWrap">
+      <button class="about-toggle" id="geqToggle" aria-expanded="false" aria-controls="geqBody">
+        <span>Graphic EQ</span><span class="arrow">▼</span>
+      </button>
+      <div class="about-body" id="geqBody">
+        <fieldset class="geq">
+          <legend>Winamp's ten bands, in dB</legend>
+          <div class="geq-controls">
+            <label><input type="checkbox" id="geqOn"> On</label>
+            <select id="geqPreset" aria-label="EQ preset"></select>
+            <button type="button" id="geqLoad">Load .eqf</button>
+            <input type="file" id="geqFile" accept=".eqf,.q1" hidden aria-label="Winamp EQ preset file">
+          </div>
+          <div class="geq-sliders" id="geqSliders"></div>
+          <p class="geq-status" id="geqStatus" role="status"></p>
+        </fieldset>
+      </div>
+    </div>
+
+    <div class="focus-bar">
+      <button id="focusBtn" title="Focus mode" aria-label="Toggle focus mode">⛶ Focus</button>
+    </div>
+
+    <!-- Focus mode floating controls -->
+    <div class="focus-controls" id="focusControls">
+      <button class="fc-btn" id="fcPrev" aria-label="Previous track">⏮</button>
+      <button class="fc-btn fc-play" id="fcPlay" aria-label="Play or pause">▶</button>
+      <button class="fc-btn" id="fcNext" aria-label="Next track">⏭</button>
+      <span class="fc-time" id="fcTime">0:00</span>
+      <div class="fc-seek" id="fcSeek" role="progressbar" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="fc-seek-fill" id="fcSeekFill"></div>
+      </div>
+      <span class="fc-time" id="fcDur">0:00</span>
+      <button class="fc-btn" id="fcExit" aria-label="Exit focus mode">✕</button>
+    </div>
+  </div>
+
+  <div class="desktop" id="desktop" hidden></div>
+
+  <audio id="audio" preload="auto" crossorigin="anonymous"></audio>
+
+  <script>
+  (() => {
+    'use strict';
+
+    // ─── CONSTANTS ───────────────────────────────────────────────
+    const C = Object.freeze({
+      /** Visual rotation speed at 33⅓ RPM (degrees per frame) */
+      VINYL_SPEED_33: 1.8,
+      /** Friction multiplier when decelerating */
+      VINYL_FRICTION: 0.93,
+      /** Minimum velocity threshold before stopping */
+      VINYL_MIN_VEL: 0.01,
+      /** Degrees-to-seconds ratio for normal scrub */
+      SEC_PER_DEG: 1.8 / 360,
+      /** Degrees-to-seconds ratio for scratch mode */
+      SEC_PER_DEG_SCRATCH: 3.6 / 360,
+      /** Tonearm angles */
+      NEEDLE_OFF: -8,
+      NEEDLE_START: 8,
+      NEEDLE_END: 24,
+      /** RPM speed mappings */
+      RPM: {
+        33: { rate: 1.0,   visual: 1.8 },
+        45: { rate: 1.35,  visual: 2.43 },
+        78: { rate: 2.34,  visual: 4.21 }
+      },
+      /** IndexedDB config */
+      DB_NAME: 'vinyl-db',
+      DB_VER: 2,
+      DB_TRACKS: 'tracks',
+      DB_META: 'meta',
+      /** localStorage keys */
+      PREFS_KEY: 'vinyl-prefs',
+      TRACKS_KEY: 'vinyl-tracks',
+      /** Regex for validating hex color codes */
+      HEX_RE: /^#[0-9a-f]{6}$/i,
+      /** Bass visualizer settings */
+      BASS_BINS: 8,
+      BASS_CANVAS_SIZE: 400,
+      /** Repeat modes */
+      REPEAT_OFF: 0,
+      REPEAT_ONE: 1,
+      REPEAT_ALL: 2,
+      REPEAT_LABELS: ['Off', 'One', 'All'],
+      REPEAT_ICONS: ['🔁', '🔂', '🔁'],
+      /** ID3 genre list (standard) */
+      GENRES: ['Blues','Classic Rock','Country','Dance','Disco','Funk','Grunge',
+        'Hip-Hop','Jazz','Metal','New Age','Oldies','Other','Pop','R&B','Rap',
+        'Reggae','Rock','Techno','Industrial','Alternative','Ska','Death Metal',
+        'Pranks','Soundtrack','Euro-Techno','Ambient','Trip-Hop','Vocal',
+        'Jazz+Funk','Fusion','Trance','Classical','Instrumental','Acid','House',
+        'Game','Sound Clip','Gospel','Noise','Alt. Rock','Bass','Soul','Punk',
+        'Space','Meditative','Instrumental Pop','Instrumental Rock','Ethnic',
+        'Gothic','Darkwave','Techno-Industrial','Electronic','Pop-Folk',
+        'Eurodance','Dream','Southern Rock','Comedy','Cult','Gangsta Rap',
+        'Top 40','Christian Rap','Pop/Funk','Jungle','Native American','Cabaret',
+        'New Wave','Psychedelic','Rave','Showtunes','Trailer','Lo-Fi','Tribal',
+        'Acid Punk','Acid Jazz','Polka','Retro','Musical','Rock & Roll','Hard Rock']
+    });
+
+    // ─── DOM REFERENCES ──────────────────────────────────────────
+    const DOM = {};
+    const $ = id => document.getElementById(id);
+
+    function initDOM() {
+      const ids = [
+        'app','turntable','vinylWrap','vinyl','tonearm','highlight',
+        'coverImg','noCover','playBtn','prevBtn','nextBtn','shuffleBtn',
+        'repeatBtn','rpmSel','themeSel','modeBtn','focusBtn',
+        'vizCanvas','vizSel','geqWrap','geqToggle','geqOn','geqPreset','geqLoad','geqFile','geqSliders','geqStatus','deskBtn','desktop',
+        'aboutToggle','aboutWrap','aboutBody',
+        'vol','bassSlider','midSlider','trebleSlider','noiseSlider',
+        'scratchChk','sfxChk',
+        'accentPick','accentHex','bgPick','bgHex',
+        'surfacePick','surfaceHex','textPick','textHex',
+        'coverIn','audioIn','hint','time',
+        'tracklistOl','tracklistEmpty',
+        'songTitle','songArtist','songAlbum','songDuration','songNotes',
+        'aboutArtist','aboutYear','aboutGenre','albumNotes',
+        'audio','bassCanvas','dropOverlay','ariaLive','liftArmBtn',
+        'focusControls','fcPrev','fcPlay','fcNext','fcTime','fcDur',
+        'fcSeek','fcSeekFill','fcExit',
+        'bassLabel','midLabel','trebleLabel','volLabel'
+      ];
+      ids.forEach(id => { DOM[id] = $(id); });
+    }
+
+    // ─── STATE ───────────────────────────────────────────────────
+    const State = {
+      playing: false,
+      needleOn: false,
+      trackLoaded: false,
+      currentIdx: -1,
+      playlist: [],
+      vinylAngle: 0,
+      vinylVelocity: 0,
+      vinylDragging: false,
+      vinylWasPlaying: false,
+      dragStartAngle: 0,
+      dragBaseAngle: 0,
+      dragStartTime: 0,
+      prevDragAngle: 0,
+      lastTimestamp: 0,
+      lastRenderIdx: -2,
+      armDragging: false,
+      armDidMove: false,
+      armStartAngle: 0,
+      armStartPointerAngle: 0,
+      armPivotX: 0,
+      armPivotY: 0,
+      prevArmAngle: 0,
+      scratchMode: false,
+      effectsEnabled: true,
+      hasCustomColors: false,
+      shuffleOn: false,
+      shuffleQueue: [],
+      shuffleIdx: -1,
+      repeatMode: 0,
+      currentRPM: 33,
+      audioCtx: null,
+      ctxReady: false,
+      srcNode: null,
+      bassEQ: null,
+      midEQ: null,
+      trebleEQ: null,
+      eqTrim: null,           // graphic EQ: preamp and headroom ahead of its ten bands
+      eqBands: [],
+      masterGain: null,
+      globalGain: null,
+      noiseNode: null,
+      noiseGain: null,
+      analyser: null,
+      freqData: null,
+      scratchBuffer: null,
+      activeScratchSrc: null,
+      activeScratchGain: null,
+      activeScratchFilter: null,
+      coverUrl: null,
+      coverDataUrl: null,
+      db: null,
+      idCounter: Date.now(),
+      dragCounter: 0,
+    };
+
+    // ─── UTILS ───────────────────────────────────────────────────
+    const Utils = {
+      clamp: (v, lo, hi) => Math.max(lo, Math.min(hi, v)),
+
+      safeDuration: () => {
+        const d = DOM.audio.duration;
+        return (d && isFinite(d) && d > 0) ? d : 0;
+      },
+
+      getCurrentTime: () => DOM.audio.currentTime,
+
+      formatTime: s => {
+        if (!isFinite(s) || s < 0) s = 0;
+        return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+      },
+
+      cleanName: n => n.replace(/\.[^.]+$/, ''),
+
+      getPointer: e => {
+        if (e.touches?.length > 0) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        if (e.clientX !== undefined) return { x: e.clientX, y: e.clientY };
+        return { x: 0, y: 0 };
+      },
+
+      pointerAngle: (el, x, y) => {
+        const r = el.getBoundingClientRect();
+        return Math.atan2(y - r.top - r.height / 2, x - r.left - r.width / 2) * 180 / Math.PI;
+      },
+
+      wrapDelta: (a, b) => {
+        let d = a - b;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        return d;
+      },
+
+      hexToHSL: hex => {
+        let r = parseInt(hex.slice(1, 3), 16) / 255;
+        let g = parseInt(hex.slice(3, 5), 16) / 255;
+        let b = parseInt(hex.slice(5, 7), 16) / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        let h = 0, s = 0, l = (mx + mn) / 2;
+        if (mx !== mn) {
+          const d = mx - mn;
+          s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+          if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+          else if (mx === g) h = ((b - r) / d + 2) / 6;
+          else h = ((r - g) / d + 4) / 6;
+        }
+        return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
+      },
+
+      shiftHex: (hex, amt) => {
+        let r = parseInt(hex.slice(1, 3), 16);
+        let g = parseInt(hex.slice(3, 5), 16);
+        let b = parseInt(hex.slice(5, 7), 16);
+        if (amt > 0) { r += (255 - r) * amt; g += (255 - g) * amt; b += (255 - b) * amt; }
+        else { const a = -amt; r *= 1 - a; g *= 1 - a; b *= 1 - a; }
+        return '#' + [r, g, b].map(c => Math.min(255, Math.max(0, Math.round(c))).toString(16).padStart(2, '0')).join('');
+      },
+
+      isLightColor: hex => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return (r * 299 + g * 587 + b * 114) / 1000 > 140;
+      },
+
+      getArmPivot: () => {
+        const tr = DOM.turntable.getBoundingClientRect();
+        const isMobile = window.innerWidth <= 480;
+        return { x: tr.right - (isMobile ? 6 : 16) - 25, y: tr.top + (-8) };
+      },
+
+      readArmAngle: () => {
+        const m = DOM.tonearm.style.transform.match(/rotate\(([-\d.]+)deg\)/);
+        return m ? parseFloat(m[1]) : C.NEEDLE_OFF;
+      },
+
+      announce: text => {
+        if (DOM.ariaLive) {
+          DOM.ariaLive.textContent = '';
+          requestAnimationFrame(() => { DOM.ariaLive.textContent = text; });
+        }
+      },
+
+      bufferToDataUrl: (buffer, mime) => {
+        return new Promise(resolve => {
+          const blob = new Blob([buffer], { type: mime });
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      },
+
+      blobToDataUrl: blob => {
+        return new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      },
+
+      rpmConfig: () => C.RPM[State.currentRPM] || C.RPM[33]
+    };
+
+    // ─── ID3 METADATA PARSER ─────────────────────────────────────
+    const ID3 = {
+      parse(buf) {
+        const result = { title: '', artist: '', album: '', year: '', genre: '', coverBlob: null };
+        if (buf.byteLength < 10) return result;
+        const view = new DataView(buf);
+
+        const hdr = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2));
+        if (hdr === 'ID3') {
+          const ver = view.getUint8(3);
+          const flags = view.getUint8(5);
+          const size = ID3._syncsafe(view, 6);
+          let offset = 10;
+          if (flags & 0x40) {
+            const extSize = ver === 4 ? ID3._syncsafe(view, 10) : view.getUint32(10);
+            offset += extSize;
+          }
+          ID3._parseFrames(new Uint8Array(buf), view, offset, offset + size, ver, result);
+        }
+
+        if (!result.title && !result.artist && buf.byteLength >= 128) {
+          ID3._parseV1(view, buf.byteLength, result);
+        }
+        return result;
+      },
+
+      _syncsafe(view, off) {
+        return (view.getUint8(off) << 21) | (view.getUint8(off + 1) << 14) |
+               (view.getUint8(off + 2) << 7) | view.getUint8(off + 3);
+      },
+
+      _parseFrames(bytes, view, pos, end, ver, result) {
+        while (pos < end - 10) {
+          const id = String.fromCharCode(bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]);
+          if (!/^[A-Z0-9]{4}$/.test(id)) break;
+
+          const size = ver === 4 ? ID3._syncsafe(view, pos + 4) : view.getUint32(pos + 4);
+          if (size <= 0 || pos + 10 + size > end) break;
+
+          const data = bytes.slice(pos + 10, pos + 10 + size);
+          switch (id) {
+            case 'TIT2': result.title = ID3._decodeText(data); break;
+            case 'TPE1': result.artist = ID3._decodeText(data); break;
+            case 'TALB': result.album = ID3._decodeText(data); break;
+            case 'TYER': case 'TDRC': result.year = ID3._decodeText(data).slice(0, 4); break;
+            case 'TCON': result.genre = ID3._decodeGenre(data); break;
+            case 'APIC': result.coverBlob = ID3._parseAPIC(data); break;
+          }
+          pos += 10 + size;
+        }
+      },
+
+      _decodeText(data) {
+        if (data.length < 2) return '';
+        const enc = data[0];
+        const text = data.slice(1);
+        if (enc === 3) return new TextDecoder('utf-8').decode(text).replace(/\0/g, '');
+        if (enc === 0) return Array.from(text).map(b => String.fromCharCode(b)).join('').replace(/\0/g, '');
+        if (enc === 1 || enc === 2) {
+          let start = 0, le = enc === 2 ? false : undefined;
+          if (enc === 1 && text.length >= 2) {
+            le = (text[0] === 0xFF && text[1] === 0xFE);
+            start = 2;
+          }
+          let str = '';
+          for (let i = start; i < text.length - 1; i += 2) {
+            const code = le ? (text[i] | (text[i + 1] << 8)) : ((text[i] << 8) | text[i + 1]);
+            if (code === 0) break;
+            str += String.fromCharCode(code);
+          }
+          return str;
+        }
+        return '';
+      },
+
+      _decodeGenre(data) {
+        let text = ID3._decodeText(data);
+        const m = text.match(/^\((\d+)\)/);
+        if (m) {
+          const idx = parseInt(m[1]);
+          if (idx < C.GENRES.length) return C.GENRES[idx];
+        }
+        return text;
+      },
+
+      _parseAPIC(data) {
+        if (data.length < 4) return null;
+        const enc = data[0];
+        let pos = 1;
+        let mime = '';
+        while (pos < data.length && data[pos] !== 0) { mime += String.fromCharCode(data[pos]); pos++; }
+        pos++;
+        pos++;
+        if (enc === 0 || enc === 3) {
+          while (pos < data.length && data[pos] !== 0) pos++;
+          pos++;
+        } else {
+          while (pos < data.length - 1) {
+            if (data[pos] === 0 && data[pos + 1] === 0) { pos += 2; break; }
+            pos += 2;
+          }
+        }
+        if (pos >= data.length) return null;
+        if (!mime || mime === 'image/') mime = 'image/jpeg';
+        return new Blob([data.slice(pos)], { type: mime });
+      },
+
+      _parseV1(view, len, result) {
+        const off = len - 128;
+        const tag = String.fromCharCode(view.getUint8(off), view.getUint8(off + 1), view.getUint8(off + 2));
+        if (tag !== 'TAG') return;
+        const read = (s, n) => {
+          let str = '';
+          for (let i = 0; i < n; i++) {
+            const c = view.getUint8(off + s + i);
+            if (c === 0) break;
+            str += String.fromCharCode(c);
+          }
+          return str.trim();
+        };
+        result.title = result.title || read(3, 30);
+        result.artist = result.artist || read(33, 30);
+        result.album = result.album || read(63, 30);
+        result.year = result.year || read(93, 4);
+        const genreIdx = view.getUint8(off + 127);
+        if (!result.genre && genreIdx < C.GENRES.length) result.genre = C.GENRES[genreIdx];
+      }
+    };
+
+    // ─── AUDIO ENGINE ────────────────────────────────────────────
+    const AudioEngine = {
+      ensure() {
+        if (State.ctxReady) {
+          if (State.audioCtx?.state === 'suspended') State.audioCtx.resume();
+          return;
+        }
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        try {
+          const ctx = State.audioCtx = new Ctx();
+          State.globalGain = ctx.createGain();
+          State.globalGain.connect(ctx.destination);
+          State.srcNode = ctx.createMediaElementSource(DOM.audio);
+          State.bassEQ = ctx.createBiquadFilter();
+          State.bassEQ.type = 'lowshelf'; State.bassEQ.frequency.value = 250;
+          State.midEQ = ctx.createBiquadFilter();
+          State.midEQ.type = 'peaking'; State.midEQ.frequency.value = 1000; State.midEQ.Q.value = 1;
+          State.trebleEQ = ctx.createBiquadFilter();
+          State.trebleEQ.type = 'highshelf'; State.trebleEQ.frequency.value = 4000;
+          State.eqTrim = ctx.createGain();
+          State.eqBands = Geq.BANDS.map((f, i) => { const b = ctx.createBiquadFilter(); b.type = Geq.type(i); b.frequency.value = f; return b; });
+          State.masterGain = ctx.createGain();
+          State.masterGain.gain.value = 1;
+          State.analyser = ctx.createAnalyser();
+          State.analyser.fftSize = 256;
+          State.freqData = new Uint8Array(State.analyser.frequencyBinCount);
+          State.srcNode.connect(State.bassEQ).connect(State.midEQ)
+            .connect(State.trebleEQ).connect(State.eqTrim);
+          State.eqBands.reduce((n, b) => n.connect(b), State.eqTrim).connect(State.masterGain)
+            .connect(State.analyser).connect(State.globalGain);
+
+          const sr = ctx.sampleRate;
+          const len = sr * 2;
+          const buf = ctx.createBuffer(1, len, sr);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            d[i] = Math.random() < 0.005 ? (Math.random() - 0.5) * 0.6 : (Math.random() - 0.5) * 0.03;
+          }
+          State.noiseNode = ctx.createBufferSource();
+          State.noiseNode.buffer = buf;
+          State.noiseNode.loop = true;
+          const nf = ctx.createBiquadFilter();
+          nf.type = 'highpass'; nf.frequency.value = 300;
+          State.noiseGain = ctx.createGain();
+          State.noiseGain.gain.value = 0;
+          State.noiseNode.connect(nf).connect(State.noiseGain).connect(State.globalGain);
+          State.noiseNode.start();
+          State.ctxReady = true;
+          DOM.audio.volume = 1;
+          AudioEngine.updateParams();
+        } catch (e) { console.warn('AudioContext init failed:', e); }
+      },
+
+      updateParams() {
+        if (!State.ctxReady) return;
+        const t = State.audioCtx.currentTime;
+        State.globalGain?.gain.setTargetAtTime(parseFloat(DOM.vol.value), t, 0.05);
+        State.bassEQ?.gain.setTargetAtTime(parseFloat(DOM.bassSlider.value), t, 0.05);
+        State.midEQ?.gain.setTargetAtTime(parseFloat(DOM.midSlider.value), t, 0.05);
+        State.trebleEQ?.gain.setTargetAtTime(parseFloat(DOM.trebleSlider.value), t, 0.05);
+        State.eqTrim?.gain.setTargetAtTime(Geq.trim, t, 0.05);                 // graphic EQ: off leaves every band at 0 dB
+        State.eqBands.forEach((b, i) => b.gain.setTargetAtTime(Geq.v?.on ? Geq.v.bands[i] : 0, t, 0.05));
+        const noiseActive = (State.playing || State.vinylDragging) && State.needleOn;
+        const nv = noiseActive ? parseFloat(DOM.noiseSlider.value) * 0.25 : 0;
+        State.noiseGain?.gain.setTargetAtTime(nv, t, 0.1);
+      },
+
+      getScratchBuffer() {
+        if (State.scratchBuffer) return State.scratchBuffer;
+        const sr = State.audioCtx.sampleRate;
+        const len = sr * 2;
+        const buf = State.audioCtx.createBuffer(1, len, sr);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        return State.scratchBuffer = buf;
+      },
+
+      startScratch() {
+        if (!State.scratchMode || !State.audioCtx) return;
+        AudioEngine.stopScratch();
+        try {
+          State.activeScratchSrc = State.audioCtx.createBufferSource();
+          State.activeScratchSrc.buffer = AudioEngine.getScratchBuffer();
+          State.activeScratchSrc.loop = true;
+          State.activeScratchFilter = State.audioCtx.createBiquadFilter();
+          State.activeScratchFilter.type = 'bandpass';
+          State.activeScratchFilter.Q.value = 5;
+          State.activeScratchFilter.frequency.value = 400;
+          State.activeScratchGain = State.audioCtx.createGain();
+          State.activeScratchGain.gain.value = 0.001;
+          State.activeScratchSrc.connect(State.activeScratchFilter)
+            .connect(State.activeScratchGain).connect(State.globalGain);
+          State.activeScratchSrc.start();
+        } catch (e) {}
+      },
+
+      updateScratch(vel) {
+        if (!State.scratchMode || !State.activeScratchGain || !State.audioCtx) return;
+        try {
+          const abs = Utils.clamp(Math.abs(vel), 0, 40);
+          const t = State.audioCtx.currentTime;
+          if (abs < 0.2) { State.activeScratchGain.gain.setTargetAtTime(0.001, t, 0.05); return; }
+          State.activeScratchFilter.frequency.setTargetAtTime(Utils.clamp(200 + abs * 80, 200, 3500), t, 0.02);
+          State.activeScratchGain.gain.setTargetAtTime(Utils.clamp(abs * 0.008, 0, 0.1), t, 0.02);
+        } catch (e) {}
+      },
+
+      stopScratch() {
+        if (!State.activeScratchGain || !State.audioCtx) return;
+        try {
+          const g = State.activeScratchGain, s = State.activeScratchSrc;
+          State.activeScratchSrc = State.activeScratchGain = State.activeScratchFilter = null;
+          g?.gain.setTargetAtTime(0.001, State.audioCtx.currentTime, 0.05);
+          setTimeout(() => { try { s?.stop(); s?.disconnect(); g?.disconnect(); } catch {} }, 100);
+        } catch (e) {}
+      },
+
+      scratchBurst(up) {
+        if (!State.scratchMode || !State.audioCtx) return;
+        try {
+          const dur = 0.2, t = State.audioCtx.currentTime;
+          const src = State.audioCtx.createBufferSource();
+          src.buffer = AudioEngine.getScratchBuffer();
+          const f = State.audioCtx.createBiquadFilter();
+          f.type = 'bandpass'; f.Q.value = 4;
+          const g = State.audioCtx.createGain();
+          if (up) {
+            f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(2500, t + dur);
+            g.gain.setValueAtTime(0.001, t); g.gain.linearRampToValueAtTime(0.08, t + dur / 2);
+            g.gain.linearRampToValueAtTime(0.001, t + dur);
+          } else {
+            f.frequency.setValueAtTime(2500, t); f.frequency.exponentialRampToValueAtTime(300, t + dur);
+            g.gain.setValueAtTime(0.08, t); g.gain.linearRampToValueAtTime(0.001, t + dur);
+          }
+          src.connect(f).connect(g).connect(State.globalGain);
+          src.start(); src.stop(t + dur);
+        } catch (e) {}
+      },
+
+      playClick() {
+        if (!State.effectsEnabled || !State.audioCtx) return;
+        try {
+          const t = State.audioCtx.currentTime;
+          const osc = State.audioCtx.createOscillator();
+          const g = State.audioCtx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(800, t); osc.frequency.exponentialRampToValueAtTime(100, t + 0.05);
+          g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.05);
+        } catch (e) {}
+      },
+
+      playClunk() {
+        if (!State.effectsEnabled || !State.audioCtx) return;
+        try {
+          const t = State.audioCtx.currentTime;
+          const osc = State.audioCtx.createOscillator();
+          const g = State.audioCtx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(120, t); osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
+          g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.1);
+        } catch (e) {}
+      },
+
+      playWhoosh(up) {
+        if (State.scratchMode || !State.effectsEnabled || !State.audioCtx) return;
+        try {
+          const t = State.audioCtx.currentTime;
+          const src = State.audioCtx.createBufferSource();
+          src.buffer = AudioEngine.getScratchBuffer();
+          const f = State.audioCtx.createBiquadFilter();
+          f.type = 'bandpass';
+          if (up) {
+            f.frequency.setValueAtTime(300, t); f.frequency.linearRampToValueAtTime(800, t + 0.15);
+          } else {
+            f.frequency.setValueAtTime(800, t); f.frequency.linearRampToValueAtTime(300, t + 0.15);
+          }
+          const g = State.audioCtx.createGain();
+          g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+          src.connect(f).connect(g).connect(State.globalGain); src.start(); src.stop(t + 0.15);
+        } catch (e) {}
+      },
+
+      getBassLevel() {
+        if (!State.analyser || !State.freqData) return 0;
+        State.analyser.getByteFrequencyData(State.freqData);
+        let sum = 0;
+        for (let i = 0; i < C.BASS_BINS; i++) sum += State.freqData[i];
+        return sum / (C.BASS_BINS * 255);
+      }
+    };
+
+    // ─── PERSISTENCE ─────────────────────────────────────────────
+    const Persistence = {
+      openDB: () => new Promise((resolve, reject) => {
+        const req = indexedDB.open(C.DB_NAME, C.DB_VER);
+        req.onupgradeneeded = e => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(C.DB_TRACKS))
+            db.createObjectStore(C.DB_TRACKS, { keyPath: 'id' });
+          if (!db.objectStoreNames.contains(C.DB_META))
+            db.createObjectStore(C.DB_META, { keyPath: 'key' });
+        };
+        req.onsuccess = () => { State.db = req.result; resolve(); };
+        req.onerror = () => reject(req.error);
+      }),
+
+      putTrack: (id, name, buffer, mime, meta) => new Promise(resolve => {
+        if (!State.db) return resolve();
+        try {
+          const tx = State.db.transaction(C.DB_TRACKS, 'readwrite');
+          tx.objectStore(C.DB_TRACKS).put({
+            id, name, buffer, mime,
+            artist: meta?.artist || '',
+            album: meta?.album || '',
+            year: meta?.year || '',
+            genre: meta?.genre || '',
+            notes: meta?.notes || '',
+            coverDataUrl: meta?.coverDataUrl || ''
+          });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch (e) { resolve(); }
+      }),
+
+      updateTrackNotes: (id, notes) => new Promise(resolve => {
+        if (!State.db) return resolve();
+        try {
+          const tx = State.db.transaction(C.DB_TRACKS, 'readwrite');
+          const store = tx.objectStore(C.DB_TRACKS);
+          const req = store.get(id);
+          req.onsuccess = () => {
+            if (req.result) { req.result.notes = notes; store.put(req.result); }
+          };
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch { resolve(); }
+      }),
+
+      deleteTrack: id => new Promise(resolve => {
+        if (!State.db) return resolve();
+        try {
+          const tx = State.db.transaction(C.DB_TRACKS, 'readwrite');
+          tx.objectStore(C.DB_TRACKS).delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch { resolve(); }
+      }),
+
+      allTracks: () => new Promise(resolve => {
+        if (!State.db) return resolve([]);
+        try {
+          const tx = State.db.transaction(C.DB_TRACKS, 'readonly');
+          const req = tx.objectStore(C.DB_TRACKS).getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        } catch { resolve([]); }
+      }),
+
+      saveCover: dataUrl => new Promise(resolve => {
+        if (!State.db) return resolve();
+        try {
+          const tx = State.db.transaction(C.DB_META, 'readwrite');
+          tx.objectStore(C.DB_META).put({ key: 'cover', dataUrl });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch { resolve(); }
+      }),
+
+      loadCover: () => new Promise(resolve => {
+        if (!State.db) return resolve(null);
+        try {
+          const tx = State.db.transaction(C.DB_META, 'readonly');
+          const req = tx.objectStore(C.DB_META).get('cover');
+          req.onsuccess = () => resolve(req.result?.dataUrl || null);
+          req.onerror = () => resolve(null);
+        } catch { resolve(null); }
+      }),
+
+      loadPrefs() {
+        try { return JSON.parse(localStorage.getItem(C.PREFS_KEY)) || {}; } catch { return {}; }
+      },
+
+      savePrefs() {
+        try {
+          localStorage.setItem(C.PREFS_KEY, JSON.stringify({
+            theme: DOM.themeSel.value,
+            lightMode: document.body.classList.contains('light-auto'),
+            volume: DOM.vol.value,
+            bass: DOM.bassSlider.value,
+            mid: DOM.midSlider.value,
+            treble: DOM.trebleSlider.value,
+            noise: DOM.noiseSlider.value,
+            sfx: DOM.sfxChk.checked,
+            scratch: DOM.scratchChk.checked,
+            accent: DOM.accentPick.value,
+            bg: DOM.bgPick.value,
+            surface: DOM.surfacePick.value,
+            text: DOM.textPick.value,
+            hasCustomColors: State.hasCustomColors,
+            shuffle: State.shuffleOn,
+            repeat: State.repeatMode,
+            rpm: State.currentRPM,
+            viz: Viz.mode,
+            albumInfo: {
+              artist: DOM.aboutArtist.innerText,
+              year: DOM.aboutYear.innerText,
+              genre: DOM.aboutGenre.innerText,
+              notes: DOM.albumNotes.innerText
+            }
+          }));
+        } catch (e) { console.warn('Prefs save failed:', e); }
+      },
+
+      saveOrder() {
+        try { localStorage.setItem(C.TRACKS_KEY, JSON.stringify(State.playlist.map(t => t.id))); } catch {}
+      }
+    };
+
+    // ─── UI ──────────────────────────────────────────────────────
+    const UI = {
+      bumpTurntable() {
+        DOM.turntable.classList.remove('bump');
+        void DOM.turntable.offsetWidth;
+        DOM.turntable.classList.add('bump');
+      },
+
+      updatePlayButton() {
+        const txt = State.playing ? '⏸' : '▶';
+        DOM.playBtn.textContent = State.playing ? '⏸ Pause' : '▶ Play';
+        DOM.playBtn.classList.toggle('on', State.playing);
+        DOM.fcPlay.textContent = txt;
+        DOM.fcPlay.classList.toggle('on', State.playing);
+      },
+
+      updateNavButtons() {
+        const has = State.playlist.length > 0;
+        DOM.playBtn.disabled = !has;
+        DOM.prevBtn.disabled = !has;
+        DOM.nextBtn.disabled = !has;
+      },
+
+      updateShuffleBtn() {
+        DOM.shuffleBtn.classList.toggle('on', State.shuffleOn);
+        DOM.shuffleBtn.title = State.shuffleOn ? 'Shuffle: On' : 'Shuffle: Off';
+      },
+
+      updateRepeatBtn() {
+        DOM.repeatBtn.classList.toggle('on', State.repeatMode > 0);
+        DOM.repeatBtn.textContent = C.REPEAT_ICONS[State.repeatMode];
+        DOM.repeatBtn.title = `Repeat: ${C.REPEAT_LABELS[State.repeatMode]}`;
+        if (State.repeatMode === C.REPEAT_ONE) {
+          DOM.repeatBtn.style.position = 'relative';
+        }
+      },
+
+      updateRPM() {
+        DOM.rpmSel.value = String(State.currentRPM);
+        const cfg = Utils.rpmConfig();
+        DOM.audio.playbackRate = cfg.rate;
+      },
+
+      renderSongInfo(track) {
+        if (!track) {
+          DOM.songTitle.textContent = '—';
+          DOM.songArtist.textContent = '—';
+          DOM.songAlbum.textContent = '—';
+          DOM.songDuration.textContent = '—';
+          DOM.songNotes.textContent = 'Drop the needle to see track details.';
+          return;
+        }
+        DOM.songTitle.textContent = track.name || '—';
+        DOM.songArtist.textContent = track.artist || '—';
+        DOM.songAlbum.textContent = track.album || '—';
+        DOM.songDuration.textContent = track.duration > 0 ? Utils.formatTime(track.duration) : 'Unknown';
+        DOM.songNotes.textContent = track.notes || `Spinning "${track.name}".`;
+      },
+
+      renderTracklist() {
+        DOM.tracklistOl.innerHTML = '';
+        DOM.tracklistEmpty.style.display = State.playlist.length ? 'none' : 'block';
+        State.playlist.forEach((track, i) => {
+          const li = document.createElement('li');
+          li.setAttribute('role', 'listitem');
+          if (i === State.currentIdx) li.classList.add('active');
+          const title = document.createElement('span');
+          title.className = 'trk-title';
+          title.textContent = track.name;
+          const artist = document.createElement('span');
+          artist.className = 'trk-artist';
+          artist.textContent = track.artist || '';
+          const dur = document.createElement('span');
+          dur.className = 'trk-dur';
+          dur.textContent = track.duration > 0 ? Utils.formatTime(track.duration) : '—';
+          const rm = document.createElement('button');
+          rm.className = 'trk-rm'; rm.textContent = '✕';
+          rm.title = 'Remove'; rm.setAttribute('aria-label', `Remove ${track.name}`);
+          rm.addEventListener('click', e => {
+            e.stopPropagation(); AudioEngine.ensure(); AudioEngine.playClick();
+            Player.removeTrack(i);
+          });
+          li.append(title, artist, dur, rm);
+          li.addEventListener('click', () => {
+            AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+            if (i === State.currentIdx) {
+              try { DOM.audio.currentTime = 0; } catch {}
+              if (!State.playing) Player.play();
+              return;
+            }
+            Player.stop(); Player.loadTrack(i); Player.play();
+          });
+          DOM.tracklistOl.appendChild(li);
+        });
+        Desk.refresh();
+      },
+
+      scrollActiveTrack() {
+        const el = DOM.tracklistOl.querySelector('li.active');
+        if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      },
+
+      getNeedleAngle() {
+        if (!State.needleOn) return C.NEEDLE_OFF;
+        const d = Utils.safeDuration();
+        if (d <= 0) return C.NEEDLE_START;
+        const pct = Utils.clamp(Utils.getCurrentTime() / d, 0, 1);
+        return C.NEEDLE_START + (C.NEEDLE_END - C.NEEDLE_START) * pct;
+      },
+
+      updateNeedle() {
+        if (State.armDragging) return;
+        DOM.tonearm.style.transform = `rotate(${UI.getNeedleAngle()}deg)`;
+      },
+
+      setNeedle(on) {
+        if (State.needleOn !== on) AudioEngine.playClunk();
+        State.needleOn = on;
+        DOM.tonearm.classList.toggle('off', !on);
+        if (!on && State.playing) {
+          Player.stop();
+        }
+        AudioEngine.updateParams();
+        UI.updateNeedle();
+      },
+
+      updateHighlight(cx, cy) {
+        const r = DOM.vinylWrap.getBoundingClientRect();
+        const a = Math.atan2(cy - r.top - r.height / 2, cx - r.left - r.width / 2) * 180 / Math.PI;
+        DOM.highlight.style.background = `conic-gradient(from ${a - 20}deg, transparent 0deg, rgba(255,255,255,.12) 30deg, transparent 60deg, transparent 165deg, rgba(255,255,255,.08) 200deg, transparent 230deg)`;
+      },
+
+      flashEQ(labelEl) {
+        labelEl.classList.remove('eq-flash');
+        void labelEl.offsetWidth;
+        labelEl.classList.add('eq-flash');
+      },
+
+      setCoverFromDataUrl(dataUrl) {
+        if (!dataUrl) return;
+        State.coverDataUrl = dataUrl;
+        DOM.coverImg.src = dataUrl;
+        DOM.coverImg.style.display = 'block';
+        DOM.noCover.style.display = 'none';
+      },
+
+      drawBassRing(level) {
+        const canvas = DOM.bassCanvas;
+        const ctx = canvas.getContext('2d');
+        const size = C.BASS_CANVAS_SIZE;
+        ctx.clearRect(0, 0, size, size);
+        if (level < 0.02 || !State.playing) return;
+
+        const cx = size / 2, cy = size / 2;
+        const labelR = size * 0.18;
+        const style = getComputedStyle(document.documentElement);
+        const h = style.getPropertyValue('--accent-h').trim();
+        const s = style.getPropertyValue('--accent-s').trim();
+        const l = style.getPropertyValue('--accent-l').trim();
+
+        const steps = Math.floor(level * 12);
+        ctx.fillStyle = `hsla(${h}, ${s}, ${l}, ${level * 0.6})`;
+        for (let i = 0; i < steps; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          const rr = labelR + 6 + level * 10;
+          const bx = cx + Math.cos(a) * rr - 4;
+          const by = cy + Math.sin(a) * rr - 4;
+          ctx.fillRect(bx, by, 8, 8);
+        }
+
+        ctx.strokeStyle = `hsla(${h}, ${s}, ${l}, ${level * 0.5})`;
+        ctx.lineWidth = 4;
+        ctx.strokeRect(cx - labelR - 6, cy - labelR - 6, (labelR + 6) * 2, (labelR + 6) * 2);
+      }
+    };
+
+    // ─── PLAYER ──────────────────────────────────────────────────
+    const Player = {
+      isReady: () => State.trackLoaded && State.currentIdx >= 0 && State.currentIdx < State.playlist.length,
+
+      play() {
+        if (!Player.isReady()) return;
+
+        AudioEngine.ensure();
+        if (!State.needleOn) UI.setNeedle(true);
+        UI.bumpTurntable();
+        if (State.scratchMode) AudioEngine.scratchBurst(true);
+        UI.updateRPM();
+        const p = DOM.audio.play();
+        if (p !== undefined) {
+          p.then(() => {
+            State.playing = true;
+            State.vinylVelocity = Utils.rpmConfig().visual;
+            UI.updatePlayButton();
+            AudioEngine.updateParams();
+            UI.scrollActiveTrack();
+            const track = State.playlist[State.currentIdx];
+            Utils.announce(`Now playing: ${track.name}${track.artist ? ' by ' + track.artist : ''}`);
+          }).catch(() => {
+            DOM.hint.textContent = 'Tap play again (browser blocked autoplay)';
+            State.playing = false;
+            UI.updatePlayButton();
+          });
+        } else {
+          State.playing = true;
+          State.vinylVelocity = Utils.rpmConfig().visual;
+          UI.updatePlayButton();
+          AudioEngine.updateParams();
+        }
+      },
+
+      stop() {
+        if (State.playing && State.scratchMode) AudioEngine.scratchBurst(false);
+        DOM.audio.pause();
+        State.playing = false;
+        UI.updatePlayButton();
+        AudioEngine.updateParams();
+      },
+
+      loadTrack(idx) {
+        if (idx < 0 || idx >= State.playlist.length) return;
+
+        State.currentIdx = idx;
+        State.trackLoaded = true;
+        const track = State.playlist[idx];
+        DOM.audio.src = track.url;
+        UI.updateRPM();
+        DOM.hint.textContent = track.artist ? `${track.artist} — ${track.name}` : track.name;
+        State.lastRenderIdx = -2;
+        UI.renderTracklist();
+        UI.renderSongInfo(track);
+        if (track.coverDataUrl) {
+          UI.setCoverFromDataUrl(track.coverDataUrl);
+        }
+      },
+
+      async addFiles(files) {
+        let firstNewIdx = State.playlist.length;
+        for (const f of files) {
+          const id = 't' + (++State.idCounter);
+          let buffer;
+          try { buffer = await f.arrayBuffer(); } catch { continue; }
+          const mime = f.type || 'audio/mpeg';
+
+          const meta = ID3.parse(buffer);
+          const name = meta.title || Utils.cleanName(f.name);
+          let coverDataUrl = '';
+
+          if (meta.coverBlob) {
+            try {
+              coverDataUrl = await Utils.blobToDataUrl(meta.coverBlob);
+              if (!State.coverDataUrl) {
+                UI.setCoverFromDataUrl(coverDataUrl);
+                Persistence.saveCover(coverDataUrl);
+              }
+            } catch {}
+          }
+
+          await Persistence.putTrack(id, name, buffer, mime, {
+            artist: meta.artist, album: meta.album,
+            year: meta.year, genre: meta.genre,
+            notes: '', coverDataUrl
+          });
+
+          const blob = new Blob([buffer], { type: mime });
+          const url = URL.createObjectURL(blob);
+          const entry = {
+            id, name, url, duration: 0,
+            artist: meta.artist, album: meta.album,
+            year: meta.year, genre: meta.genre,
+            notes: '', coverDataUrl
+          };
+          State.playlist.push(entry);
+
+          if (meta.artist && DOM.aboutArtist.innerText === '—') DOM.aboutArtist.innerText = meta.artist;
+          if (meta.year && DOM.aboutYear.innerText === '—') DOM.aboutYear.innerText = meta.year;
+          if (meta.genre && DOM.aboutGenre.innerText === '—') DOM.aboutGenre.innerText = meta.genre;
+
+          Player.probeDuration(url).then(d => {
+            entry.duration = d;
+            UI.renderTracklist();
+            if (entry === State.playlist[State.currentIdx]) UI.renderSongInfo(entry);
+          });
+        }
+        UI.renderTracklist();
+        UI.updateNavButtons();
+        Persistence.saveOrder();
+        Persistence.savePrefs();
+        if (State.shuffleOn) Player.rebuildShuffleQueue();
+        if (State.currentIdx < 0 && State.playlist.length) Player.loadTrack(firstNewIdx);
+      },
+
+      probeDuration: url => new Promise(resolve => {
+        const t = new Audio();
+        t.preload = 'metadata';
+        let done = false;
+        const finish = v => { if (done) return; done = true; resolve(v); try { t.removeAttribute('src'); t.load(); } catch {} };
+        t.addEventListener('loadedmetadata', () => finish(t.duration || 0), { once: true });
+        t.addEventListener('error', () => finish(0), { once: true });
+        setTimeout(() => finish(0), 5000);
+        t.src = url;
+      }),
+
+      async restoreTracks() {
+        const rows = await Persistence.allTracks();
+        if (!rows.length) return;
+        for (const r of rows) {
+          const n = parseInt(r.id.replace(/\D/g, ''), 10);
+          if (n >= State.idCounter) State.idCounter = n + 1;
+        }
+        let order;
+        try { order = JSON.parse(localStorage.getItem(C.TRACKS_KEY)); } catch { order = null; }
+        const byId = {};
+        rows.forEach(r => { byId[r.id] = r; });
+        const ordered = order ? order.filter(id => byId[id]).map(id => byId[id]) : rows;
+        rows.forEach(r => { if (!ordered.includes(r)) ordered.push(r); });
+
+        for (const r of ordered) {
+          const blob = new Blob([r.buffer], { type: r.mime || 'audio/mpeg' });
+          const url = URL.createObjectURL(blob);
+          const entry = {
+            id: r.id, name: r.name, url, duration: 0,
+            artist: r.artist || '', album: r.album || '',
+            year: r.year || '', genre: r.genre || '',
+            notes: r.notes || '', coverDataUrl: r.coverDataUrl || ''
+          };
+          State.playlist.push(entry);
+          Player.probeDuration(url).then(d => {
+            entry.duration = d;
+            UI.renderTracklist();
+            if (entry === State.playlist[State.currentIdx]) UI.renderSongInfo(entry);
+          });
+        }
+        UI.renderTracklist();
+        UI.updateNavButtons();
+        if (State.playlist.length) Player.loadTrack(0);
+        if (State.shuffleOn) Player.rebuildShuffleQueue();
+      },
+
+      async removeTrack(idx) {
+        if (idx < 0 || idx >= State.playlist.length) return;
+        const wasActive = idx === State.currentIdx;
+        const wasPlaying = State.playing;
+        if (wasActive) Player.stop();
+        URL.revokeObjectURL(State.playlist[idx].url);
+        await Persistence.deleteTrack(State.playlist[idx].id);
+        State.playlist.splice(idx, 1);
+        if (!State.playlist.length) {
+          State.currentIdx = -1; State.trackLoaded = false;
+          try { DOM.audio.removeAttribute('src'); DOM.audio.load(); } catch {}
+          DOM.hint.textContent = 'Load audio files to start';
+          DOM.time.textContent = '0:00 / 0:00';
+          UI.setNeedle(false); UI.renderSongInfo(null);
+        } else if (wasActive) {
+          Player.loadTrack(Math.min(idx, State.playlist.length - 1));
+          if (wasPlaying) Player.play();
+        } else if (idx < State.currentIdx) {
+          State.currentIdx--;
+        }
+        State.lastRenderIdx = -2;
+        UI.renderTracklist(); UI.updateNavButtons();
+        Persistence.saveOrder();
+        if (State.shuffleOn) Player.rebuildShuffleQueue();
+      },
+
+      rebuildShuffleQueue() {
+        const indices = State.playlist.map((_, i) => i);
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        if (State.currentIdx >= 0) {
+          const ci = indices.indexOf(State.currentIdx);
+          if (ci > 0) { [indices[0], indices[ci]] = [indices[ci], indices[0]]; }
+          State.shuffleIdx = 0;
+        } else {
+          State.shuffleIdx = -1;
+        }
+        State.shuffleQueue = indices;
+      },
+
+      getNextIdx() {
+        if (State.repeatMode === C.REPEAT_ONE) return State.currentIdx;
+        if (State.shuffleOn && State.shuffleQueue.length > 0) {
+          State.shuffleIdx++;
+          if (State.shuffleIdx >= State.shuffleQueue.length) {
+            if (State.repeatMode === C.REPEAT_ALL) {
+              Player.rebuildShuffleQueue();
+              State.shuffleIdx = 0;
+            } else {
+              return -1;
+            }
+          }
+          return State.shuffleQueue[State.shuffleIdx];
+        }
+        const next = State.currentIdx + 1;
+        if (next >= State.playlist.length) {
+          return State.repeatMode === C.REPEAT_ALL ? 0 : -1;
+        }
+        return next;
+      },
+
+      getPrevIdx() {
+        if (State.shuffleOn && State.shuffleQueue.length > 0) {
+          State.shuffleIdx--;
+          if (State.shuffleIdx < 0) State.shuffleIdx = State.shuffleQueue.length - 1;
+          return State.shuffleQueue[State.shuffleIdx];
+        }
+        return State.currentIdx > 0 ? State.currentIdx - 1 : State.playlist.length - 1;
+      },
+
+      onTrackEnd() {
+        const nextIdx = Player.getNextIdx();
+        if (nextIdx >= 0 && nextIdx < State.playlist.length) {
+          Player.stop();
+          Player.loadTrack(nextIdx);
+          Player.play();
+        } else {
+          Player.stop();
+          try { DOM.audio.currentTime = 0; } catch {}
+        }
+      },
+
+      async setCoverFromFile(file) {
+        AudioEngine.ensure();
+        AudioEngine.playClick();
+        if (State.coverUrl) URL.revokeObjectURL(State.coverUrl);
+        const dataUrl = await Utils.blobToDataUrl(file);
+        UI.setCoverFromDataUrl(dataUrl);
+        Persistence.saveCover(dataUrl);
+      }
+    };
+
+    // ─── THEMING ─────────────────────────────────────────────────
+    const Theming = {
+      applyAccent(hex) {
+        if (!C.HEX_RE.test(hex)) return;
+        const [h, s, l] = Utils.hexToHSL(hex);
+        const root = document.documentElement.style;
+        root.setProperty('--accent', hex);
+        root.setProperty('--accent-h', h);
+        root.setProperty('--accent-s', s + '%');
+        root.setProperty('--accent-l', l + '%');
+        DOM.accentPick.value = hex;
+        DOM.accentHex.value = hex;
+      },
+
+      applyBg(hex) {
+        if (!C.HEX_RE.test(hex)) return;
+        document.documentElement.style.setProperty('--bg', hex);
+        DOM.bgPick.value = hex; DOM.bgHex.value = hex;
+        State.hasCustomColors = true;
+        document.body.classList.remove('light-auto');
+        document.body.classList.add('has-custom-colors');
+      },
+
+      applySurface(hex) {
+        if (!C.HEX_RE.test(hex)) return;
+        const root = document.documentElement.style;
+        root.setProperty('--surface', hex);
+        root.setProperty('--surface2', Utils.shiftHex(hex, Utils.isLightColor(hex) ? -0.05 : 0.08));
+        root.setProperty('--border', Utils.isLightColor(hex) ? '#0f0f1b' : '#f4f4f4');
+        DOM.surfacePick.value = hex; DOM.surfaceHex.value = hex;
+        State.hasCustomColors = true;
+        document.body.classList.remove('light-auto');
+        document.body.classList.add('has-custom-colors');
+      },
+
+      applyText(hex) {
+        if (!C.HEX_RE.test(hex)) return;
+        const root = document.documentElement.style;
+        root.setProperty('--text', hex);
+        root.setProperty('--text-dim', Utils.shiftHex(hex, Utils.isLightColor(hex) ? -0.35 : 0.35));
+        DOM.textPick.value = hex; DOM.textHex.value = hex;
+        State.hasCustomColors = true;
+        document.body.classList.remove('light-auto');
+        document.body.classList.add('has-custom-colors');
+      },
+
+      wireColor(pick, hexInput, applyFn) {
+        pick.addEventListener('input', () => { applyFn(pick.value); Persistence.savePrefs(); });
+        hexInput.addEventListener('input', () => {
+          let v = hexInput.value.trim();
+          if (v.length && v[0] !== '#') v = '#' + v;
+          if (C.HEX_RE.test(v)) { applyFn(v); Persistence.savePrefs(); }
+        });
+        hexInput.addEventListener('keydown', e => { if (e.key === 'Enter') hexInput.blur(); });
+      },
+
+      loadPrefs() {
+        const p = Persistence.loadPrefs();
+        if (p.theme) DOM.themeSel.value = p.theme;
+        if (p.volume != null) DOM.vol.value = p.volume;
+        if (p.bass != null) DOM.bassSlider.value = p.bass;
+        if (p.mid != null) DOM.midSlider.value = p.mid;
+        if (p.treble != null) DOM.trebleSlider.value = p.treble;
+        if (p.noise != null) DOM.noiseSlider.value = p.noise;
+        if (p.sfx !== undefined) { DOM.sfxChk.checked = p.sfx; State.effectsEnabled = p.sfx; }
+        if (p.scratch !== undefined) { DOM.scratchChk.checked = p.scratch; State.scratchMode = p.scratch; }
+        if (p.shuffle !== undefined) { State.shuffleOn = p.shuffle; UI.updateShuffleBtn(); }
+        if (p.repeat !== undefined) { State.repeatMode = p.repeat; UI.updateRepeatBtn(); }
+        if (p.rpm !== undefined) { State.currentRPM = p.rpm; UI.updateRPM(); }
+        if (Viz.MODES.includes(p.viz)) Viz.mode = p.viz;
+        if (p.hasCustomColors) {
+          State.hasCustomColors = true;
+          document.body.classList.add('has-custom-colors');
+          if (p.bg) Theming.applyBg(p.bg);
+          if (p.surface) Theming.applySurface(p.surface);
+          if (p.text) Theming.applyText(p.text);
+        }
+        if (p.accent) Theming.applyAccent(p.accent);
+        if (p.lightMode && !p.hasCustomColors) {
+          document.body.classList.add('light-auto');
+          DOM.modeBtn.textContent = '🌙';
+        }
+        if (DOM.themeSel.value) DOM.app.classList.add(DOM.themeSel.value);
+        if (p.albumInfo) {
+          if (p.albumInfo.artist) DOM.aboutArtist.innerText = p.albumInfo.artist;
+          if (p.albumInfo.year) DOM.aboutYear.innerText = p.albumInfo.year;
+          if (p.albumInfo.genre) DOM.aboutGenre.innerText = p.albumInfo.genre;
+          if (p.albumInfo.notes) DOM.albumNotes.innerText = p.albumInfo.notes;
+        }
+        [DOM.aboutArtist, DOM.aboutYear, DOM.aboutGenre, DOM.albumNotes].forEach(el => {
+          el.addEventListener('blur', Persistence.savePrefs);
+        });
+        DOM.songNotes.addEventListener('blur', () => {
+          const track = State.playlist[State.currentIdx];
+          if (track) {
+            track.notes = DOM.songNotes.textContent;
+            Persistence.updateTrackNotes(track.id, track.notes);
+          }
+        });
+      }
+    };
+
+    // ─── EVENTS ──────────────────────────────────────────────────
+    const Events = {
+      vinylDown(e) {
+        if (!Player.isReady() || State.armDragging) return;
+        e.preventDefault();
+        AudioEngine.ensure();
+        if (State.scratchMode) AudioEngine.startScratch();
+        else AudioEngine.playWhoosh(false);
+
+        State.vinylDragging = true;
+        State.vinylWasPlaying = State.playing;
+        DOM.vinylWrap.classList.add('dragging');
+        AudioEngine.updateParams();
+        const p = Utils.getPointer(e);
+        State.dragStartAngle = Utils.pointerAngle(DOM.vinylWrap, p.x, p.y);
+        State.dragBaseAngle = State.vinylAngle;
+        State.dragStartTime = Utils.getCurrentTime();
+        State.prevDragAngle = State.dragStartAngle;
+
+        DOM.audio.pause();
+        State.vinylVelocity = 0;
+      },
+
+      vinylMove(e) {
+        if (!State.vinylDragging) return;
+        e.preventDefault();
+        const p = Utils.getPointer(e);
+        const a = Utils.pointerAngle(DOM.vinylWrap, p.x, p.y);
+        const total = Utils.wrapDelta(a, State.dragStartAngle);
+        State.vinylAngle = State.dragBaseAngle + total;
+        Events.scrub(total);
+        State.vinylVelocity = Utils.wrapDelta(a, State.prevDragAngle) * 0.5;
+        State.prevDragAngle = a;
+        if (State.scratchMode) AudioEngine.updateScratch(State.vinylVelocity);
+      },
+
+      vinylUp() {
+        if (!State.vinylDragging) return;
+        if (State.scratchMode) AudioEngine.stopScratch();
+        else AudioEngine.playWhoosh(true);
+
+        State.vinylDragging = false;
+        DOM.vinylWrap.classList.remove('dragging');
+        AudioEngine.updateParams();
+
+        if (State.vinylWasPlaying && State.needleOn) {
+          Player.play();
+        }
+      },
+
+      scrub(totalDeg) {
+        const s = State.scratchMode ? C.SEC_PER_DEG_SCRATCH : C.SEC_PER_DEG;
+        const d = Utils.safeDuration();
+        if (d <= 0) return;
+        try { DOM.audio.currentTime = Utils.clamp(State.dragStartTime + totalDeg * s, 0, d); } catch {}
+      },
+
+      armDown(e) {
+        e.preventDefault(); e.stopPropagation();
+        AudioEngine.ensure(); AudioEngine.playClick();
+        if (State.scratchMode) AudioEngine.startScratch();
+        const pivot = Utils.getArmPivot();
+        State.armPivotX = pivot.x; State.armPivotY = pivot.y;
+        State.armDragging = true; State.armDidMove = false;
+        State.armStartAngle = Utils.readArmAngle();
+        const p = Utils.getPointer(e);
+        State.armStartPointerAngle = Events.pivotAngle(p.x, p.y);
+        State.prevArmAngle = State.armStartPointerAngle;
+        DOM.tonearm.classList.remove('smooth');
+        DOM.tonearm.classList.add('arm-dragging');
+      },
+
+      pivotAngle: (px, py) => Math.atan2(py - State.armPivotY, px - State.armPivotX) * 180 / Math.PI - 90,
+
+      armMove(e) {
+        if (!State.armDragging) return;
+        e.preventDefault();
+        State.armDidMove = true;
+        const p = Utils.getPointer(e);
+        const cur = Events.pivotAngle(p.x, p.y);
+        const vel = Utils.wrapDelta(cur, State.prevArmAngle);
+        State.prevArmAngle = cur;
+        if (State.scratchMode) AudioEngine.updateScratch(vel * 2);
+        const delta = Utils.wrapDelta(cur, State.armStartPointerAngle);
+        const angle = Utils.clamp(State.armStartAngle + delta, C.NEEDLE_OFF, C.NEEDLE_END);
+        DOM.tonearm.style.transform = `rotate(${angle}deg)`;
+        const d = Utils.safeDuration();
+        if (angle >= C.NEEDLE_START && d > 0 && Player.isReady()) {
+          if (!State.needleOn) { AudioEngine.playClunk(); State.needleOn = true; DOM.tonearm.classList.remove('off'); AudioEngine.updateParams(); }
+
+          const pct = Utils.clamp((angle - C.NEEDLE_START) / (C.NEEDLE_END - C.NEEDLE_START), 0, 1);
+          try { DOM.audio.currentTime = pct * d; } catch {}
+        } else if (State.needleOn) {
+          AudioEngine.playClunk(); State.needleOn = false;
+          DOM.tonearm.classList.add('off'); AudioEngine.updateParams();
+        }
+      },
+
+      armUp() {
+        if (!State.armDragging) return;
+        if (State.scratchMode) AudioEngine.stopScratch();
+        State.armDragging = false;
+        DOM.tonearm.classList.remove('arm-dragging');
+        DOM.tonearm.classList.add('smooth');
+        if (!State.armDidMove) {
+          if (State.needleOn) UI.setNeedle(false);
+          else if (Player.isReady()) { AudioEngine.ensure(); UI.setNeedle(true); Player.play(); }
+          return;
+        }
+        const final = Utils.readArmAngle();
+        if (final >= C.NEEDLE_START && Player.isReady()) {
+          if (!State.needleOn) { AudioEngine.playClunk(); State.needleOn = true; DOM.tonearm.classList.remove('off'); AudioEngine.updateParams(); }
+          Player.play();
+        } else {
+          if (State.needleOn) { AudioEngine.playClunk(); State.needleOn = false; DOM.tonearm.classList.add('off'); AudioEngine.updateParams(); }
+          if (State.playing) Player.stop();
+          UI.updateNeedle();
+        }
+      },
+
+      setupDragDrop() {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+          document.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
+        });
+        document.addEventListener('dragenter', e => {
+          if (e.dataTransfer?.types?.includes('Files')) {
+            State.dragCounter++; DOM.dropOverlay.classList.add('active');
+          }
+        });
+        document.addEventListener('dragleave', () => {
+          State.dragCounter--;
+          if (State.dragCounter <= 0) { State.dragCounter = 0; DOM.dropOverlay.classList.remove('active'); }
+        });
+        document.addEventListener('drop', e => {
+          State.dragCounter = 0; DOM.dropOverlay.classList.remove('active');
+          const files = Array.from(e.dataTransfer?.files || []);
+          if (!files.length) return;
+          AudioEngine.ensure();
+          const audioFiles = files.filter(f => f.type.startsWith('audio/') || /\.(mp3|wav|ogg|flac|m4a|aac|opus|wma)$/i.test(f.name));
+          const imageFiles = files.filter(f => f.type.startsWith('image/'));
+          if (imageFiles.length > 0) Player.setCoverFromFile(imageFiles[0]);
+          if (audioFiles.length > 0) Player.addFiles(audioFiles);
+        });
+      },
+
+      setupKeyboard() {
+        document.addEventListener('keydown', e => {
+          if (!DOM.desktop.hidden) return;                                // the desktop's buttons take the keys while it is open
+          if (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+          switch (e.key) {
+            case ' ':
+              e.preventDefault();
+              AudioEngine.ensure(); AudioEngine.playClick();
+              if (!Player.isReady()) return;
+              if (State.playing) Player.stop();
+              else { if (State.currentIdx < 0) Player.loadTrack(0); Player.play(); }
+              break;
+            case 'ArrowLeft':
+              e.preventDefault();
+              if (State.trackLoaded) {
+                try {
+                  const ct = DOM.audio.currentTime;
+                  if (ct > 3) DOM.audio.currentTime = Math.max(0, ct - 5);
+                  else { const wasP = State.playing; Player.stop(); Player.loadTrack(Player.getPrevIdx()); if (wasP) Player.play(); }
+                } catch {}
+              }
+              break;
+            case 'ArrowRight':
+              e.preventDefault();
+              if (State.trackLoaded) {
+                try { DOM.audio.currentTime = Math.min(Utils.safeDuration(), DOM.audio.currentTime + 5); } catch {}
+              }
+              break;
+            case 'ArrowUp':
+              e.preventDefault();
+              DOM.vol.value = Math.min(1, parseFloat(DOM.vol.value) + 0.05);
+              DOM.vol.dispatchEvent(new Event('input'));
+              break;
+            case 'ArrowDown':
+              e.preventDefault();
+              DOM.vol.value = Math.max(0, parseFloat(DOM.vol.value) - 0.05);
+              DOM.vol.dispatchEvent(new Event('input'));
+              break;
+            case 's': case 'S':
+              DOM.shuffleBtn.click();
+              break;
+            case 'r': case 'R':
+              DOM.repeatBtn.click();
+              break;
+            case 'f': case 'F':
+              DOM.focusBtn.click();
+              break;
+            case 'Escape':
+              if (DOM.app.classList.contains('focus')) {
+                DOM.focusBtn.click();
+              }
+              break;
+          }
+        });
+      },
+
+      setupGlobal() {
+        document.addEventListener('mousemove', e => {
+          Events.vinylMove(e); Events.armMove(e);
+          UI.updateHighlight(e.clientX, e.clientY);
+        });
+        document.addEventListener('touchmove', e => {
+          Events.vinylMove(e); Events.armMove(e);
+          if (e.touches?.length > 0) UI.updateHighlight(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: false });
+        document.addEventListener('mouseup', () => { Events.vinylUp(); Events.armUp(); });
+        document.addEventListener('touchend', () => { Events.vinylUp(); Events.armUp(); });
+      },
+
+      setupControls() {
+        DOM.playBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          if (!Player.isReady()) return;
+          if (State.playing) { Player.stop(); return; }
+          if (State.currentIdx < 0) Player.loadTrack(0);
+          Player.play();
+        });
+
+        const prevAction = () => {
+          AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+          if (!State.playlist.length) return;
+          const wasPlaying = State.playing;
+          try { if (DOM.audio.currentTime > 3 && State.currentIdx >= 0) { DOM.audio.currentTime = 0; return; } } catch {}
+          Player.stop();
+          Player.loadTrack(Player.getPrevIdx());
+          if (wasPlaying) Player.play();
+        };
+        DOM.prevBtn.addEventListener('click', prevAction);
+
+        const nextAction = () => {
+          AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+          if (!State.playlist.length) return;
+          const wasPlaying = State.playing;
+          Player.stop();
+          const nextIdx = State.shuffleOn && State.shuffleQueue.length > 0
+            ? Player.getNextIdx()
+            : (State.currentIdx < State.playlist.length - 1 ? State.currentIdx + 1 : 0);
+          Player.loadTrack(nextIdx >= 0 ? nextIdx : 0);
+          if (wasPlaying) Player.play();
+        };
+        DOM.nextBtn.addEventListener('click', nextAction);
+
+        DOM.shuffleBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.shuffleOn = !State.shuffleOn;
+          if (State.shuffleOn) Player.rebuildShuffleQueue();
+          UI.updateShuffleBtn();
+          Persistence.savePrefs();
+        });
+
+        DOM.repeatBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.repeatMode = (State.repeatMode + 1) % 3;
+          UI.updateRepeatBtn();
+          Persistence.savePrefs();
+        });
+
+        DOM.rpmSel.addEventListener('change', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.currentRPM = parseInt(DOM.rpmSel.value);
+          UI.updateRPM();
+          if (State.playing) State.vinylVelocity = Utils.rpmConfig().visual;
+          Persistence.savePrefs();
+        });
+
+        DOM.coverIn.addEventListener('change', e => {
+          const f = e.target.files[0];
+          if (f) Player.setCoverFromFile(f);
+          DOM.coverIn.value = '';
+        });
+
+        DOM.audioIn.addEventListener('change', e => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          if (e.target.files.length) Player.addFiles(Array.from(e.target.files));
+          DOM.audioIn.value = '';
+        });
+
+        const eqPairs = [[DOM.bassSlider, DOM.bassLabel],[DOM.midSlider, DOM.midLabel],[DOM.trebleSlider, DOM.trebleLabel]];
+        eqPairs.forEach(([slider, label]) => {
+          slider.addEventListener('input', () => {
+            AudioEngine.ensure(); AudioEngine.updateParams();
+            UI.flashEQ(label); Persistence.savePrefs();
+          });
+        });
+
+        DOM.vol.addEventListener('input', () => {
+          AudioEngine.ensure();
+          AudioEngine.updateParams();
+          Persistence.savePrefs();
+        });
+
+        DOM.noiseSlider.addEventListener('input', () => {
+          AudioEngine.ensure(); AudioEngine.updateParams(); Persistence.savePrefs();
+        });
+
+        DOM.sfxChk.addEventListener('change', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.effectsEnabled = DOM.sfxChk.checked;
+          Persistence.savePrefs();
+        });
+        DOM.scratchChk.addEventListener('change', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.scratchMode = DOM.scratchChk.checked;
+          Persistence.savePrefs();
+        });
+
+        DOM.themeSel.addEventListener('change', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          DOM.app.classList.remove('theme-wood', 'theme-clear');
+          if (DOM.themeSel.value) DOM.app.classList.add(DOM.themeSel.value);
+          Persistence.savePrefs();
+        });
+
+        DOM.modeBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          if (State.hasCustomColors) {
+            DOM.hint.textContent = 'Reset custom colours to use light/dark toggle';
+            return;
+          }
+          document.body.classList.toggle('light-auto');
+          DOM.modeBtn.textContent = document.body.classList.contains('light-auto') ? '🌙' : '☀';
+          Persistence.savePrefs();
+        });
+
+        DOM.focusBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          const on = DOM.app.classList.toggle('focus');
+          DOM.focusBtn.textContent = on ? '⛶ Exit Focus' : '⛶ Focus';
+          DOM.focusBtn.classList.toggle('on', on);
+        });
+
+        DOM.fcPlay.addEventListener('click', () => { DOM.playBtn.click(); });
+        DOM.fcPrev.addEventListener('click', prevAction);
+        DOM.fcNext.addEventListener('click', nextAction);
+        DOM.fcExit.addEventListener('click', () => {
+          DOM.app.classList.remove('focus');
+          DOM.focusBtn.textContent = '⛶ Focus';
+          DOM.focusBtn.classList.remove('on');
+        });
+
+        DOM.fcSeek.addEventListener('click', e => {
+          const rect = DOM.fcSeek.getBoundingClientRect();
+          const pct = Utils.clamp((e.clientX - rect.left) / rect.width, 0, 1);
+          const d = Utils.safeDuration();
+          if (d > 0) {
+            try { DOM.audio.currentTime = pct * d; } catch {}
+          }
+        });
+
+        DOM.aboutToggle.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          const isOpen = DOM.aboutWrap.classList.toggle('open');
+          DOM.aboutToggle.setAttribute('aria-expanded', isOpen);
+        });
+
+        DOM.liftArmBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          if (State.needleOn) {
+            UI.setNeedle(false);
+          } else if (Player.isReady()) {
+            UI.setNeedle(true);
+            Player.play();
+          }
+        });
+
+        DOM.vinylWrap.addEventListener('mousedown', Events.vinylDown);
+        DOM.vinylWrap.addEventListener('touchstart', Events.vinylDown, { passive: false });
+        DOM.tonearm.addEventListener('mousedown', Events.armDown);
+        DOM.tonearm.addEventListener('touchstart', Events.armDown, { passive: false });
+      },
+
+      setupAudio() {
+        DOM.audio.addEventListener('ended', Player.onTrackEnd);
+      }
+    };
+
+    // ─── GRAPHIC EQ (Winamp's ten bands after the tone controls, off by default. The band layout and the preset values
+    //     come from Webamp, github.com/captbaritone/webamp, MIT License, Copyright (c) 2015 Jordan Eldredge. Winamp is a
+    //     trademark of its owner; this player is not affiliated with it.) Stored under keys every player shares. ──
+    const Geq = {
+      BANDS: [60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000],
+      KEY: 'vinyl-eq', PRESETS_KEY: 'vinyl-eq-presets', MAX_IMPORTED: 50,
+      // Webamp's presets/builtin.json in Winamp's slider values (1 to 64): preamp, then the ten bands
+      BUILT_IN: [
+        ['Classical', [33, 33, 33, 33, 33, 33, 33, 20, 20, 20, 16]], ['Club', [33, 33, 33, 38, 42, 42, 42, 38, 33, 33, 33]],
+        ['Dance', [33, 48, 44, 36, 32, 32, 22, 20, 20, 32, 32]], ['Laptop speakers/headphones', [33, 40, 50, 41, 26, 28, 35, 40, 48, 53, 56]],
+        ['Large hall', [33, 49, 49, 42, 42, 33, 24, 24, 24, 33, 33]], ['Party', [33, 44, 44, 33, 33, 33, 33, 33, 33, 44, 44]],
+        ['Pop', [33, 29, 40, 44, 45, 41, 30, 28, 28, 29, 29]], ['Reggae', [33, 33, 33, 31, 22, 33, 43, 43, 33, 33, 33]],
+        ['Rock', [33, 45, 40, 23, 19, 26, 39, 47, 50, 50, 50]], ['Soft', [33, 40, 35, 30, 28, 30, 39, 46, 48, 50, 52]],
+        ['Ska', [33, 28, 24, 25, 31, 39, 42, 47, 48, 50, 48]], ['Full Bass', [33, 48, 48, 48, 42, 35, 25, 18, 15, 14, 14]],
+        ['Soft Rock', [33, 39, 39, 36, 31, 25, 23, 26, 31, 37, 47]], ['Full Treble', [33, 16, 16, 16, 25, 37, 50, 58, 58, 58, 60]],
+        ['Full Bass & Treble', [33, 44, 42, 33, 20, 24, 35, 46, 50, 52, 52]], ['Live', [33, 24, 33, 39, 41, 42, 42, 39, 37, 37, 36]],
+        ['Techno', [33, 45, 42, 33, 23, 24, 33, 45, 48, 48, 47]]
+      ],
+      v: null, trim: 1, winamp: [], imported: [], pre: null, inputs: [],
+
+      type: i => i === 0 ? 'lowshelf' : i === 9 ? 'highshelf' : 'peaking',
+      clamp: db => Number.isFinite(db) ? Utils.clamp(db, -12, 12) : 0,
+      /** Winamp's slider value to dB: 33 is 0 dB, 64 is +12 and 1 is -12, so the steps differ slightly above and below. */
+      toDb: x => Math.round((x - 33) / (x >= 33 ? 31 : 32) * 120) / 10,
+      fromValues: (name, [pre = 33, ...bands]) => ({ name, preamp: Geq.toDb(pre), bands: bands.map(Geq.toDb) }),
+
+      /** The presets in a Winamp .eqf (or winamp.q1) file. After the header, each entry is a 257-byte name and eleven
+          bytes, the bands then the preamp, where 0 is +12 dB and 63 is -12 dB. Throws when the file is not one. */
+      parseEqf(buf) {
+        const b = new Uint8Array(buf), head = 'Winamp EQ library file v1.1', out = [];
+        if (String.fromCharCode(...b.subarray(0, head.length)) !== head) throw new Error('Not a Winamp .eqf file.');
+        for (let at = head.length + 4; at + 268 <= b.length; at += 268) {      // the header ends in Ctrl-Z and "!--"
+          const nb = b.subarray(at, at + 257), end = nb.indexOf(0);
+          const name = new TextDecoder('latin1').decode(nb.subarray(0, end < 0 ? 257 : end)).trim();
+          const vals = [...b.subarray(at + 257, at + 268)].map(x => 64 - x);
+          out.push(Geq.fromValues(name || 'Imported', [vals.pop(), ...vals]));
+        }
+        if (!out.length) throw new Error('The .eqf file holds no presets.');
+        return out;
+      },
+
+      dbList: v => Array.isArray(v) && v.length === 10 ? v.map(x => typeof x === 'number' ? Geq.clamp(x) : 0) : null,
+      /** Valid EQ settings from stored data, field by field: off and flat unless the data says otherwise. */
+      parse(raw) {
+        const s = raw && typeof raw === 'object' ? raw : {};
+        return {
+          on: typeof s.on === 'boolean' ? s.on : false,
+          preamp: typeof s.preamp === 'number' ? Geq.clamp(s.preamp) : 0,
+          bands: Geq.dbList(s.bands) || Geq.BANDS.map(() => 0),
+          preset: typeof s.preset === 'string' ? s.preset.slice(0, 256) : ''
+        };
+      },
+      /** Valid imported presets from stored data; bad entries are dropped. */
+      parsePresets(raw) {
+        return !Array.isArray(raw) ? [] : raw.flatMap(p => {
+          const bands = p && typeof p === 'object' && Geq.dbList(p.bands);
+          return bands && typeof p.name === 'string' && p.name && typeof p.preamp === 'number'
+            ? [{ name: p.name.slice(0, 256), preamp: Geq.clamp(p.preamp), bands }] : [];
+        });
+      },
+
+      /** Gain in dB at hz of band i, from the Web Audio spec's biquad formulas (Q 1, which Winamp's peaking bands keep). */
+      bandDb(i, db, hz) {
+        if (!db) return 0;
+        const A = 10 ** (db / 40), w0 = 2 * Math.PI * Geq.BANDS[i] / 48000, cos = Math.cos(w0), w = 2 * Math.PI * hz / 48000, type = Geq.type(i);
+        let b, a;
+        if (type === 'peaking') {
+          const al = Math.sin(w0) / 2;
+          b = [1 + al * A, -2 * cos, 1 - al * A]; a = [1 + al / A, -2 * cos, 1 - al / A];
+        } else {
+          const k = 2 * Math.sqrt(A) * (Math.sin(w0) / 2 * Math.SQRT2), s = type === 'lowshelf' ? 1 : -1;
+          b = [A * (A + 1 - s * (A - 1) * cos + k), s * 2 * A * (A - 1 - s * (A + 1) * cos), A * (A + 1 - s * (A - 1) * cos - k)];
+          a = [A + 1 + s * (A - 1) * cos + k, -s * 2 * (A - 1 + s * (A + 1) * cos), A + 1 + s * (A - 1) * cos - k];
+        }
+        const at = c => Math.hypot(c[0] + c[1] * Math.cos(w) + c[2] * Math.cos(2 * w), c[1] * Math.sin(w) + c[2] * Math.sin(2 * w));
+        return 20 * Math.log10(at(b) / at(a));
+      },
+      /** The largest boost the bands give anywhere from 20 Hz to 20 kHz, in dB (0 or more). */
+      peakDb(eq) {
+        if (!eq.on) return 0;
+        let peak = 0;
+        for (let s = 0; s <= 240; s++) {
+          const hz = 20 * 1000 ** (s / 240);
+          peak = Math.max(peak, eq.bands.reduce((sum, db, i) => sum + Geq.bandDb(i, db, hz), 0));
+        }
+        return peak;
+      },
+      /** Gain ahead of the bands: the preamp, lowered by the largest boost (plus 0.2 dB for rounding) so the output cannot
+          pass full scale. A raise is only kept as far as it fits. */
+      inputGain(eq) {
+        if (!eq.on) return 1;
+        const boost = Geq.peakDb(eq) + eq.preamp;
+        return (boost > 0 ? 10 ** (-(boost + 0.2) / 20) : 1) * 10 ** (eq.preamp / 20);
+      },
+
+      read(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } },
+      write(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} },
+
+      /** Builds the preamp and band faders and restores the saved settings. */
+      mount() {
+        Geq.v = Geq.parse(Geq.read(Geq.KEY));
+        Geq.imported = Geq.parsePresets(Geq.read(Geq.PRESETS_KEY)).slice(-Geq.MAX_IMPORTED);
+        Geq.winamp = Geq.BUILT_IN.map(([n, vals]) => Geq.fromValues(n, vals));
+        const fader = (id, label, db) => {
+          const wrap = document.createElement('div'), input = document.createElement('input');
+          const out = document.createElement('output'), name = document.createElement('label');
+          wrap.className = 'geq-band';
+          Object.assign(input, { id, type: 'range', min: -12, max: 12, step: 0.1, value: db });
+          name.htmlFor = id; name.textContent = label; out.htmlFor.add(id);
+          wrap.append(out, input, name);
+          DOM.geqSliders.append(wrap);
+          input.addEventListener('input', () => { Geq.v.preset = ''; DOM.geqPreset.value = ''; Geq.changed(); });
+          return input;
+        };
+        Geq.pre = fader('geqPre', 'Pre', Geq.v.preamp);
+        Geq.pre.parentElement.classList.add('geq-preamp');
+        Geq.inputs = Geq.BANDS.map((hz, i) => fader('geq' + hz, hz >= 1000 ? hz / 1000 + 'k' : String(hz), Geq.v.bands[i]));
+        DOM.geqOn.checked = Geq.v.on;
+        DOM.geqOn.addEventListener('change', () => Geq.changed());
+        DOM.geqPreset.addEventListener('change', () => {
+          const sel = DOM.geqPreset.value, p = (sel[0] === 'w' ? Geq.winamp : Geq.imported)[+sel.slice(1)];
+          if (sel && p) Geq.use(p);
+        });
+        DOM.geqLoad.addEventListener('click', () => DOM.geqFile.click());
+        DOM.geqFile.addEventListener('change', async () => {
+          const file = DOM.geqFile.files[0];
+          DOM.geqFile.value = '';
+          if (!file) return;
+          try {
+            const found = Geq.parseEqf(await file.arrayBuffer()), names = new Set(found.map(p => p.name));
+            Geq.imported = [...Geq.imported.filter(p => !names.has(p.name)), ...found].slice(-Geq.MAX_IMPORTED);
+            Geq.write(Geq.PRESETS_KEY, Geq.imported);
+            Geq.use(found[0]);
+            DOM.geqStatus.textContent = found.length === 1 ? `EQ preset "${found[0].name}" loaded.` : `${found.length} EQ presets loaded.`;
+          } catch { DOM.geqStatus.textContent = `${file.name} is not a Winamp EQ preset file (.eqf).`; }
+        });
+        DOM.geqToggle.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          DOM.geqToggle.setAttribute('aria-expanded', DOM.geqWrap.classList.toggle('open'));
+        });
+        Geq.trim = Geq.inputGain(Geq.v);
+        Geq.fill();
+        Geq.show();
+      },
+
+      /** A preset moves the faders and switches the EQ on. */
+      use(p) {
+        Geq.v.preset = p.name;
+        Geq.pre.value = p.preamp;
+        Geq.inputs.forEach((input, i) => { input.value = p.bands[i]; });
+        DOM.geqOn.checked = true;
+        Geq.changed();
+        Geq.fill();
+      },
+
+      /** Reads the controls, remembers them and sends them to the filters. */
+      changed() {
+        Geq.v = { on: DOM.geqOn.checked, preamp: Geq.clamp(+Geq.pre.value), bands: Geq.inputs.map(i => Geq.clamp(+i.value)), preset: Geq.v.preset };
+        Geq.trim = Geq.inputGain(Geq.v);
+        Geq.write(Geq.KEY, Geq.v);
+        Geq.show();
+        AudioEngine.updateParams();
+      },
+
+      show() {
+        [Geq.pre, ...Geq.inputs].forEach((input, i) => {
+          const db = +input.value, t = (db > 0 ? '+' : db < 0 ? '−' : '') + Math.abs(db).toFixed(1).replace('.0', '');
+          input.parentElement.querySelector('output').textContent = t;      // the legend says dB; the columns are narrow
+          input.setAttribute('aria-label', i ? Geq.BANDS[i - 1] + ' Hz' : 'Preamp');
+          input.setAttribute('aria-valuetext', (i ? Geq.BANDS[i - 1] + ' hertz' : 'Preamp') + ': ' + t.replace('−', 'minus ') + ' decibels');
+        });
+        DOM.geqSliders.classList.toggle('off', !DOM.geqOn.checked);
+      },
+
+      fill() {
+        const sel = DOM.geqPreset;
+        sel.replaceChildren(new Option('Presets…', ''));
+        for (const [label, list, k] of [['Winamp', Geq.winamp, 'w'], ['Imported', Geq.imported, 'i']]) {
+          if (!list.length) continue;
+          const g = document.createElement('optgroup');
+          g.label = label;
+          list.forEach((p, i) => g.append(new Option(p.name, k + i)));
+          sel.append(g);
+        }
+        sel.value = [...sel.options].find(o => o.text === Geq.v.preset)?.value || '';
+      }
+    };
+
+    // ─── LABEL VISUALIZER (covers the label while a record plays and stays upright as the record turns) ──
+    const Viz = {
+      PX: 64, LW: 1, GLOW: 0,     // drawn small and shown with hard pixel edges
+      SCOPES: { floor: -90, range: 70, rows: 8, points: 25, spectroRows: 32, step: 1, radial: 20 },   // dB drawn as nothing, dB to full height, ridgelines and their points, spectrogram rows and px per frame, radial bands
+      MODES: ['off', 'lines', 'scope', 'spectrogram', 'radial'],
+      mode: 'off', shown: 'off', an: null, spec: null, wave: null, draw: null,
+      calm: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false,
+
+      /** Its own analyser: the bass ring's is too coarse. */
+      listen() {
+        if (Viz.an) return;
+        Viz.an = State.audioCtx.createAnalyser();
+        Viz.an.fftSize = 2048; Viz.an.smoothingTimeConstant = Viz.smoothing(Viz.shown);
+        State.analyser.connect(Viz.an);
+        Viz.spec = new Float32Array(Viz.an.frequencyBinCount);
+      },
+
+      /** The radial spectrum eases by itself; the other styles take the analyser's smoothing. */
+      smoothing: m => m === 'radial' ? 0 : 0.5,
+
+      /** A clean canvas for a new style: the spectrogram scrolls what is there and the scope fades it. */
+      reset(mode) {
+        Viz.draw = null;
+        if (Viz.an) Viz.an.smoothingTimeConstant = Viz.smoothing(mode);
+        const cv = DOM.vizCanvas, px = Viz.PX, g = cv.getContext('2d');
+        if (cv.width !== px) cv.width = cv.height = px;
+        g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+        g.fillStyle = '#151515'; g.fillRect(0, 0, px, px);
+      },
+
+      // Lines, Scope, Spectrogram and Radial are ideas found through awesome-audio-visualization
+      // (github.com/willianjusten/awesome-audio-visualization, CC0): its "Lines" experiment (the Unknown Pleasures look),
+      // oscilloscopes, scrolling spectrograms and circular spectra such as "Awesome Audio Player" and "CircleLineNERDDISCO".
+      // They are drawn from scratch; no code is taken from any of them.
+
+      /** First FFT bin of each of n bands spaced evenly on a log scale from first to last, and one more closing the
+          last band. Every band holds at least one bin. */
+      logEdges(last, n, first = 1) {
+        const e = [];
+        for (let i = 0; i <= n; i++) e.push(Math.min(last, Math.max(Math.round(first * (last / first) ** (i / n)), (i ? e[i - 1] : first - 1) + 1)));
+        for (let i = n - 1; i >= 0; i--) e[i] = Math.min(e[i], e[i + 1] - 1);   // forced steps pile up on the last bin: spread them back down
+        return e;
+      },
+      /** The bins from about 45 Hz to 16 kHz, where music has something to show. */
+      musicBins(count, rate) { const hz = rate / 2 / count; return [Math.max(1, Math.round(45 / hz)), Math.min(count, Math.round(16000 / hz))]; },
+      /** The loudest bin of each band, as 0 to 1. */
+      levels(spec, edges, out) {
+        const k = Viz.SCOPES;
+        for (let i = 0; i < out.length; i++) {
+          let peak = -Infinity;
+          for (let q = edges[i]; q < edges[i + 1]; q++) peak = Math.max(peak, spec[q]);
+          out[i] = Utils.clamp((peak - k.floor) / k.range, 0, 1);
+        }
+      },
+      /** The last rows frames of levels in a ring; row 0 is the oldest. */
+      history(rows, n) {
+        const frames = Array.from({ length: rows }, () => new Float32Array(n));
+        let next = 0;
+        return { push(v) { frames[next].set(v); next = (next + 1) % rows; }, row: i => frames[(next + i) % rows] };
+      },
+      /** The first rise through zero in the first half of the samples, or 0: where the scope starts, so it holds still. */
+      zeroCross(w) { for (let i = 1, end = w.length >> 1; i < end; i++) if (w[i - 1] < 0 && w[i] >= 0) return i; return 0; },
+      HEAT: [[21, 21, 21], [64, 18, 110], [190, 40, 90], [245, 120, 40], [255, 220, 90], [255, 255, 235]],
+      /** Spectrogram colour for a level of 0 to 1: the label's black, through purple and red, to white. */
+      heat(v) {
+        const H = Viz.HEAT, t = Utils.clamp(v, 0, 1) * (H.length - 1), i = Math.min(H.length - 2, Math.floor(t)), f = t - i;
+        return H[i].map((c, j) => Math.round(c + (H[i + 1][j] - c) * f));
+      },
+
+      /** Each style returns draw(g, spec, wave, dt) holding its own state. */
+      styles: {
+        lines([first, last]) {
+          const k = Viz.SCOPES, px = Viz.PX, half = Math.ceil(k.points / 2), edges = Viz.logEdges(last, half, first);
+          const lv = new Float32Array(half), hist = Viz.history(k.rows, half);
+          const left = 0.17 * px, width = 0.66 * px, top = 0.34 * px, gap = 0.42 * px / k.rows, lift = 0.2 * px;
+          return (g, spec) => {
+            Viz.levels(spec, edges, lv); hist.push(lv);
+            g.fillStyle = '#151515'; g.fillRect(0, 0, px, px);
+            g.lineWidth = Viz.LW; g.lineJoin = 'round'; g.strokeStyle = '#f0ede6';
+            for (let row = 0; row < k.rows; row++) {                     // oldest at the top; each newer line is filled, hiding those behind it
+              const line = hist.row(row), base = top + row * gap;
+              g.beginPath(); g.moveTo(left, base);
+              for (let i = 0; i < k.points; i++) {
+                const off = Math.abs(2 * i / (k.points - 1) - 1);        // mirrored, bass in the middle as on the pulsar plot
+                const taper = Math.cos(off * Math.PI / 2) ** 0.6;         // the ends run flat into the baseline
+                g.lineTo(left + i / (k.points - 1) * width, base - lift * line[Math.min(half - 1, Math.round(off * (half - 1)))] ** 2 * taper);
+              }
+              g.lineTo(left + width, base); g.fillStyle = '#151515'; g.fill(); g.stroke();
+            }
+          };
+        },
+        scope() {
+          const px = Viz.PX;
+          return (g, spec, wave) => {
+            g.globalAlpha = 0.35; g.fillStyle = '#151515'; g.fillRect(0, 0, px, px); g.globalAlpha = 1;   // fading the last trace leaves a phosphor trail
+            const start = Viz.zeroCross(wave), n = wave.length >> 1;
+            g.beginPath();
+            for (let i = 0; i < n; i++) g.lineTo(0.08 * px + i / (n - 1) * 0.84 * px, px / 2 - wave[start + i] * 0.3 * px);
+            g.lineWidth = Viz.LW; g.strokeStyle = '#7dff9a'; g.shadowColor = '#3cff6e'; g.shadowBlur = Viz.GLOW; g.stroke(); g.shadowBlur = 0;
+          };
+        },
+        spectrogram([first, last]) {
+          const k = Viz.SCOPES, px = Viz.PX, rows = k.spectroRows, edges = Viz.logEdges(last, rows, first), lv = new Float32Array(rows);
+          const bottom = 0.84 * px, h = 0.68 * px / rows;                 // the rows stay inside the round label
+          return (g, spec) => {
+            g.drawImage(g.canvas, -k.step, 0);                            // scroll left; the newest column on the right, low notes at the bottom
+            Viz.levels(spec, edges, lv);
+            for (let r = 0; r < rows; r++) {
+              const [R, G, B] = Viz.heat(lv[r]);
+              g.fillStyle = `rgb(${R},${G},${B})`; g.fillRect(px - k.step, bottom - (r + 1) * h, k.step, h + 0.5);
+            }
+          };
+        },
+        radial([first, last]) {
+          const k = Viz.SCOPES, px = Viz.PX, n = k.radial, edges = Viz.logEdges(last, n, first), lv = new Float32Array(n), eased = new Float32Array(n);
+          const c = px / 2, inner = 0.1 * px, reach = 0.36 * px;          // clear of the spindle
+          return (g, spec, wave, dt) => {
+            Viz.levels(spec, edges, lv);
+            g.fillStyle = '#151515'; g.fillRect(0, 0, px, px);
+            g.globalCompositeOperation = 'lighter'; g.lineCap = 'round'; g.lineWidth = Math.PI / n * inner * 0.9;
+            for (let i = 0; i < n; i++) {
+              eased[i] += (lv[i] - eased[i]) * Math.min(1, 10 * dt);
+              const len = reach * eased[i] ** 2;
+              if (len < 0.5) continue;
+              g.strokeStyle = `hsl(${i / n * 300}, 100%, 62.5%)`;
+              for (const side of [1, -1]) {                               // bass at the top, mirrored down both sides
+                const a = -Math.PI / 2 + side * (i + 0.5) / n * Math.PI, x = Math.cos(a), y = Math.sin(a);
+                g.beginPath(); g.moveTo(c + x * inner, c + y * inner); g.lineTo(c + x * (inner + len), c + y * (inner + len)); g.stroke();
+              }
+            }
+            g.globalCompositeOperation = 'source-over';
+          };
+        }
+      },
+
+      drawScope(mode, dt) {
+        Viz.listen();
+        if (!Viz.draw) {
+          Viz.draw = Viz.styles[mode](Viz.musicBins(Viz.spec.length, State.audioCtx.sampleRate));
+          Viz.wave = Viz.wave || new Float32Array(Viz.an.fftSize);
+        }
+        Viz.an.getFloatFrequencyData(Viz.spec);
+        if (mode === 'scope') Viz.an.getFloatTimeDomainData(Viz.wave);
+        Viz.draw(DOM.vizCanvas.getContext('2d'), Viz.spec, Viz.wave, dt);
+      },
+
+      /** One frame of the chosen style while the needle plays; otherwise the canvas is hidden and the label shows. */
+      frame(dt) {
+        const mode = State.playing && State.needleOn && State.analyser && !Viz.calm ? Viz.mode : 'off';
+        if (mode !== Viz.shown) {
+          Viz.shown = mode;
+          DOM.vizCanvas.classList.toggle('on', mode !== 'off');
+          Viz.reset(mode);
+        }
+        if (mode !== 'off') Viz.drawScope(mode, dt);
+      },
+
+      bind() {
+        DOM.vizSel.value = Viz.mode;
+        DOM.vizSel.addEventListener('change', () => {
+          AudioEngine.ensure();
+          Viz.mode = Viz.MODES.includes(DOM.vizSel.value) ? DOM.vizSel.value : 'off';
+          Persistence.savePrefs();
+        });
+      }
+    };
+
+    // ─── LIBRARY DESKTOP (artists and albums as folders, tracks as files to open or drag onto the turntable. The idea is
+    //     Winampify's, github.com/remigallego/winampify, MIT License; no code is taken from it.) ──
+    const Desk = {
+      TYPE: 'application/x-vinyl-track',   // not "Files", so the page's file drop leaves a dragged track alone
+      top: 0, opened: 0, icons: null, wins: null,
+
+      /** Artist folders holding album folders, sorted by name with the unknown ones last. Tracks keep their order. */
+      group(tracks) {
+        const col = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+        const byName = unknown => (a, b) => (a.name === unknown) - (b.name === unknown) || col.compare(a.name, b.name);
+        const artists = new Map();
+        for (const t of tracks) {
+          const ar = (t.artist || '').trim() || 'Unknown artist', al = (t.album || '').trim() || 'Unknown album';
+          if (!artists.has(ar)) artists.set(ar, new Map());
+          const albums = artists.get(ar);
+          albums.set(al, [...(albums.get(al) || []), t]);
+        }
+        return [...artists].map(([name, albums]) => ({
+          name, albums: [...albums].map(([album, list]) => ({ name: album, tracks: list })).sort(byName('Unknown album'))
+        })).sort(byName('Unknown artist'));
+      },
+
+      icon(kind, label, detail) {
+        const b = document.createElement('button'), glyph = document.createElement('span'), name = document.createElement('span');
+        b.type = 'button'; b.className = 'desk-icon desk-' + kind;
+        glyph.className = 'desk-glyph'; glyph.setAttribute('aria-hidden', 'true');
+        name.className = 'desk-name'; name.textContent = label;
+        b.append(glyph, name);
+        if (detail) { const meta = document.createElement('span'); meta.className = 'desk-meta'; meta.textContent = detail; b.append(meta); }
+        return b;
+      },
+
+      /** Mouse users double-click; keyboard and touch activations arrive as single clicks. */
+      onOpen(b, fn) {
+        b.addEventListener('click', e => { if (e.detail === 0 || e.pointerType === 'touch' || e.pointerType === 'pen') fn(); });
+        b.addEventListener('dblclick', fn);
+      },
+
+      play(id) {
+        const i = State.playlist.findIndex(t => String(t.id) === id);
+        if (i < 0) return;
+        AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+        Player.stop(); Player.loadTrack(i); Player.play();
+      },
+
+      front: () => [...Desk.wins.querySelectorAll('.desk-window')].sort((a, b) => b.style.zIndex - a.style.zIndex)[0],
+      focusFront() { (Desk.front() || Desk.icons).querySelector('button')?.focus(); },
+
+      open(name, fill) {
+        const win = document.createElement('section'), head = document.createElement('div'), body = document.createElement('div');
+        const label = document.createElement('span'), shut = document.createElement('button');
+        win.className = 'desk-window'; win.setAttribute('role', 'dialog'); win.setAttribute('aria-label', name);
+        head.className = 'desk-window-bar'; label.textContent = name;
+        shut.type = 'button'; shut.className = 'desk-close'; shut.textContent = '✕'; shut.setAttribute('aria-label', 'Close ' + name);
+        body.className = 'desk-window-body';
+        head.append(label, shut); fill(body); win.append(head, body);
+        const step = (Desk.opened++ % 8) * 28, base = Desk.wins.clientWidth > 640 ? 150 : 8;   // clear of the icon column where there is room
+        win.style.left = base + step + 'px'; win.style.top = 72 + step + 'px';
+        win.style.zIndex = ++Desk.top;
+        Desk.wins.append(win);
+        win.addEventListener('pointerdown', () => { win.style.zIndex = ++Desk.top; });
+        shut.addEventListener('click', () => { win.remove(); Desk.focusFront(); });
+        head.addEventListener('pointerdown', e => {                       // dragged by the title bar
+          if (e.target === shut) return;
+          const dx = e.clientX - win.offsetLeft, dy = e.clientY - win.offsetTop;
+          head.setPointerCapture(e.pointerId);
+          const move = m => {
+            win.style.left = Utils.clamp(m.clientX - dx, 0, Desk.wins.clientWidth - 80) + 'px';
+            win.style.top = Utils.clamp(m.clientY - dy, 0, Desk.wins.clientHeight - 32) + 'px';
+          };
+          const up = () => { head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); };
+          head.addEventListener('pointermove', move); head.addEventListener('pointerup', up);
+        });
+        body.querySelector('button')?.focus();
+      },
+
+      openArtist(artist) {
+        Desk.open(artist.name, body => artist.albums.forEach(album => {
+          const n = album.tracks.length, folder = Desk.icon('folder', album.name, n + (n === 1 ? ' track' : ' tracks'));
+          Desk.onOpen(folder, () => Desk.open(artist.name + ' — ' + album.name, list => album.tracks.forEach(t => {
+            const file = Desk.icon('file', t.name, t.duration > 0 ? Utils.formatTime(t.duration) : '');
+            file.draggable = true; file.dataset.id = t.id;
+            Desk.onOpen(file, () => Desk.play(String(t.id)));
+            file.addEventListener('dragstart', e => { e.dataTransfer.setData(Desk.TYPE, String(t.id)); e.dataTransfer.effectAllowed = 'copy'; });
+            list.append(file);
+          })));
+          body.append(folder);
+        }));
+      },
+
+      render() {
+        const deck = Desk.icon('deck', 'Turntable', 'Drop a track to play');
+        Desk.onOpen(deck, Desk.hide);
+        deck.addEventListener('dragover', e => { if (!e.dataTransfer?.types?.includes(Desk.TYPE)) return; e.preventDefault(); deck.classList.add('is-target'); });
+        deck.addEventListener('dragleave', () => deck.classList.remove('is-target'));
+        deck.addEventListener('drop', e => { deck.classList.remove('is-target'); const id = e.dataTransfer?.getData(Desk.TYPE); if (id) Desk.play(id); });
+        const artists = Desk.group(State.playlist).map(a => {
+          const f = Desk.icon('folder', a.name, a.albums.length + (a.albums.length === 1 ? ' album' : ' albums'));
+          Desk.onOpen(f, () => Desk.openArtist(a));
+          return f;
+        });
+        const empty = document.createElement('p');
+        empty.className = 'desk-hint'; empty.textContent = 'The library is empty. Add files first.';
+        Desk.icons.replaceChildren(deck, ...(artists.length ? artists : [empty]));
+      },
+
+      show() {
+        Desk.render(); Desk.wins.replaceChildren();
+        DOM.desktop.hidden = false; DOM.deskBtn.setAttribute('aria-expanded', 'true');
+        Desk.icons.querySelector('button').focus();
+      },
+      hide() { DOM.desktop.hidden = true; DOM.deskBtn.setAttribute('aria-expanded', 'false'); DOM.deskBtn.focus(); },
+      /** After the tracklist changes. */
+      refresh() { if (Desk.icons && !DOM.desktop.hidden) Desk.render(); },
+
+      bind() {
+        const bar = document.createElement('div'), title = document.createElement('h2'), hint = document.createElement('p'), close = document.createElement('button');
+        bar.className = 'desk-bar'; title.id = 'deskTitle'; title.textContent = 'Library desktop';
+        hint.className = 'desk-hint'; hint.textContent = 'Open a folder, then double-click a track or drag it onto the turntable. Esc closes.';
+        close.type = 'button'; close.textContent = 'Close';
+        Desk.icons = document.createElement('div'); Desk.icons.className = 'desk-icons';
+        Desk.wins = document.createElement('div'); Desk.wins.className = 'desk-windows';
+        bar.append(title, hint, close);
+        DOM.desktop.append(bar, Desk.icons, Desk.wins);
+        DOM.desktop.setAttribute('role', 'dialog'); DOM.desktop.setAttribute('aria-modal', 'true'); DOM.desktop.setAttribute('aria-labelledby', title.id);
+        DOM.deskBtn.setAttribute('aria-expanded', 'false');
+        DOM.deskBtn.addEventListener('click', () => { AudioEngine.ensure(); AudioEngine.playClick(); DOM.desktop.hidden ? Desk.show() : Desk.hide(); });
+        close.addEventListener('click', Desk.hide);
+        // captured on the document, so Esc works wherever focus is and no deck shortcut sees it
+        document.addEventListener('keydown', e => {
+          if (DOM.desktop.hidden || e.key !== 'Escape') return;
+          e.stopPropagation();
+          const w = Desk.front();
+          if (w) { w.remove(); Desk.focusFront(); } else Desk.hide();
+        }, true);
+      }
+    };
+
+    // ─── ANIMATION ───────────────────────────────────────────────
+    const Animation = {
+      tick(ts) {
+        const dt = State.lastTimestamp ? Math.min(ts - State.lastTimestamp, 50) : 16.67;
+        State.lastTimestamp = ts;
+        const scale = dt / 16.67;
+
+        if (!State.vinylDragging) {
+          if (State.playing && State.needleOn) {
+            State.vinylVelocity = Utils.rpmConfig().visual;
+          } else {
+            State.vinylVelocity *= C.VINYL_FRICTION;
+            if (Math.abs(State.vinylVelocity) < C.VINYL_MIN_VEL) State.vinylVelocity = 0;
+          }
+          State.vinylAngle += State.vinylVelocity * scale;
+        }
+
+        DOM.vinyl.style.transform = `rotate(${State.vinylAngle}deg)`;
+
+        if (Player.isReady()) {
+          const d = Utils.safeDuration();
+          const ct = Utils.getCurrentTime() || 0;
+          const timeStr = `${Utils.formatTime(ct)} / ${Utils.formatTime(d)}`;
+          DOM.time.textContent = timeStr;
+          DOM.fcTime.textContent = Utils.formatTime(ct);
+          DOM.fcDur.textContent = Utils.formatTime(d);
+
+          if (d > 0) {
+            const pct = (ct / d) * 100;
+            DOM.fcSeekFill.style.width = pct + '%';
+          }
+
+          UI.updateNeedle();
+
+          if (State.currentIdx !== State.lastRenderIdx) {
+            State.lastRenderIdx = State.currentIdx;
+            const lis = DOM.tracklistOl.children;
+            for (let i = 0; i < lis.length; i++) lis[i].classList.toggle('active', i === State.currentIdx);
+          }
+        }
+
+        Viz.frame(dt / 1000);
+
+        if (State.playing && State.needleOn && State.analyser) {
+          const level = AudioEngine.getBassLevel();
+          UI.drawBassRing(level);
+        } else if (!State.playing) {
+          const ctx = DOM.bassCanvas.getContext('2d');
+          ctx.clearRect(0, 0, C.BASS_CANVAS_SIZE, C.BASS_CANVAS_SIZE);
+        }
+
+        requestAnimationFrame(Animation.tick);
+      }
+    };
+
+    // ─── INITIALIZATION ──────────────────────────────────────────
+    const init = async () => {
+      initDOM();
+      Theming.loadPrefs();
+      Theming.wireColor(DOM.accentPick, DOM.accentHex, Theming.applyAccent);
+      Theming.wireColor(DOM.bgPick, DOM.bgHex, Theming.applyBg);
+      Theming.wireColor(DOM.surfacePick, DOM.surfaceHex, Theming.applySurface);
+      Theming.wireColor(DOM.textPick, DOM.textHex, Theming.applyText);
+      Events.setupControls();
+      Events.setupAudio();
+      Events.setupGlobal();
+      Events.setupDragDrop();
+      Events.setupKeyboard();
+      Geq.mount();
+      Viz.bind();
+      Desk.bind();
+
+      const prefs = Persistence.loadPrefs();
+      if (!prefs.hasCustomColors && prefs.lightMode === undefined) {
+        if (window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+          document.body.classList.add('light-auto');
+          DOM.modeBtn.textContent = '🌙';
+        }
+      }
+
+      try {
+        await Persistence.openDB();
+        await Player.restoreTracks();
+        const coverUrl = await Persistence.loadCover();
+        if (coverUrl) UI.setCoverFromDataUrl(coverUrl);
+      } catch (e) { console.warn('DB init failed:', e); }
+
+      UI.renderTracklist();
+      UI.renderSongInfo(null);
+      UI.updateShuffleBtn();
+      UI.updateRepeatBtn();
+
+      window.addEventListener('beforeunload', () => {
+        State.playlist.forEach(t => { try { URL.revokeObjectURL(t.url); } catch {} });
+        if (State.coverUrl) try { URL.revokeObjectURL(State.coverUrl); } catch {}
+      });
+
+      requestAnimationFrame(Animation.tick);
+    };
+
+    init();
+  })();
+  </script>
+</body>
+</html>
