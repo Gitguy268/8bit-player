@@ -336,7 +336,9 @@ try{Object.assign(prefs,JSON.parse(localStorage.getItem(PKEY)||"{}"));}catch(e){
 const VIS_MODES=["pixel","lines","scope","spec","radial","butter"];
 const VIS_NAMES={pixel:"PIXEL",lines:"LINES",scope:"SCOPE",spec:"SPEC",radial:"RING",butter:"BUTTER"};
 if(!VIS_MODES.includes(prefs.vis))prefs.vis="pixel";
-function savePrefs(){try{localStorage.setItem(PKEY,JSON.stringify(prefs));}catch(e){}}
+// ?shelf: a Vinyl Shelf album plays as a guest. Start-up writes nothing and the library is never opened.
+const SHELF=new URLSearchParams(location.search).has("shelf");let shelfQuiet=SHELF;
+function savePrefs(){if(shelfQuiet)return;try{localStorage.setItem(PKEY,JSON.stringify(prefs));}catch(e){}}
 
 /* ============ audio engine ============ */
 const audio=$("#audio");
@@ -473,10 +475,60 @@ function parseID3(buf){
 let tracks=[],cur=0;
 const memData={}; // id -> arrayBuffer for user tracks (for re-save of edits)
 
+/* ============ Vinyl Shelf (only with ?shelf): one album handed over by a Vinyl Shelf page ============
+   Protocol vinyl-shelf/1: docs/PROTOCOL.md in the Gitguy268/vinyl-shelf repository. */
+const Shelf={
+  host:window.parent!==window?window.parent:window.opener,taken:false,last:"",
+  post(m){try{Shelf.host.postMessage(Object.assign({v:1},m),"*");}catch(e){}},
+  state(){
+    const t=tracks[cur];
+    const m={type:"vinyl-shelf:state",playing:!audio.paused,track:cur,title:t?t.title:"",position:Math.round((audio.currentTime||0)*10)/10,duration:Math.round((isFinite(audio.duration)?audio.duration:0)*10)/10,sound:actx?actx.state:"none",blocked:!!document.getElementById("shelfTap")};
+    const k=JSON.stringify(m);if(k!==Shelf.last){Shelf.last=k;Shelf.post(m);}
+  },
+  async take(d){
+    const files=d.tracks.map(t=>t&&t.file).filter(f=>f instanceof File);
+    if(!files.length)return;
+    Shelf.taken=true;
+    const a=d.album&&typeof d.album==="object"?d.album:{};
+    const before=tracks.length;
+    await handleFiles(files);
+    const cover=a.cover instanceof Blob?URL.createObjectURL(a.cover):null;
+    const up=v=>typeof v==="string"?v.toUpperCase().slice(0,60):"";
+    for(const t of tracks.slice(before)){
+      if(!t.cover&&cover)t.cover=cover;
+      if(t.artist==="UNKNOWN"&&up(a.artist))t.artist=up(a.artist);
+      if(!t.album&&up(a.title))t.album=up(a.title);
+    }
+    renderAll();
+    Shelf.post({type:"vinyl-shelf:loaded",tracks:tracks.length});
+    if(d.autoplay===false)audio.pause();
+    else setTimeout(()=>{if(audio.paused||!actx||actx.state!=="running")Shelf.prompt();},1200);
+    setInterval(Shelf.state,500);
+  },
+  /* Some browsers (Safari) keep sound off in a framed page until a click lands inside it. */
+  prompt(){
+    if(document.getElementById("shelfTap"))return;
+    const b=document.createElement("button");
+    b.id="shelfTap";b.type="button";b.textContent="▶  TAP TO DROP THE NEEDLE";
+    b.style.cssText="position:fixed;inset:0;z-index:2147483647;border:0;background:rgba(0,0,0,.6);color:#ffcc00;font:16px monospace;cursor:pointer";
+    b.onclick=()=>{b.remove();ensureCtx();audio.play().catch(()=>{});};
+    document.body.append(b);b.focus();
+    Shelf.post({type:"vinyl-shelf:blocked"});
+  },
+  listen(){
+    if(!Shelf.host)return;
+    addEventListener("message",e=>{
+      const d=e.data;
+      if(e.source!==Shelf.host||Shelf.taken||!d||d.type!=="vinyl-shelf:load"||d.v!==1||!Array.isArray(d.tracks))return;
+      Shelf.take(d);
+    });
+    Shelf.post({type:"vinyl-shelf:hello",player:"8bit-player"});
+  }
+};
 async function boot(){
   applyPrefsToUI();syncAudio();
-  tracks=makeDemos();
-  const saved=await idbAll();
+  tracks=SHELF?[]:makeDemos();
+  const saved=SHELF?[]:await idbAll();
   for(const r of saved){
     try{
       const blob=new Blob([r.data],{type:r.type||"audio/mpeg"});
@@ -489,6 +541,7 @@ async function boot(){
   }
   renderAll();loadTrack(cur,false);
   requestAnimationFrame(pixLoop);requestAnimationFrame(vinylLoop);
+  if(SHELF){shelfQuiet=false;Shelf.listen();}
 }
 function applyPrefsToUI(){
   document.body.classList.toggle("no-crt",!prefs.crt);
@@ -620,7 +673,7 @@ async function handleFiles(files){
     let cover=null;if(meta.pic)cover=URL.createObjectURL(meta.pic);
     const rec={id,title:(meta.title||f.name.replace(/\.[^.]+$/,"").slice(0,60)).toUpperCase(),artist:(meta.artist||"UNKNOWN").toUpperCase(),album:(meta.album||"").toUpperCase(),notes:"",user:true,name:f.name,blob,url,cover};
     tracks.push(rec);memData[id]=buf;
-    try{await idbPut({id,title:rec.title,artist:rec.artist,album:rec.album,notes:"",name:f.name,type:blob.type,data:buf});}catch(e){}
+    if(!SHELF)try{await idbPut({id,title:rec.title,artist:rec.artist,album:rec.album,notes:"",name:f.name,type:blob.type,data:buf});}catch(e){}
     added++;
   }
   if(added>0){blip(1320,0.08);renderAll();loadTrack(tracks.length-added,true);}
